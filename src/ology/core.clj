@@ -3,13 +3,26 @@
     (:require [clj-http.client :as client])
     (:require [clj-time.format :refer [parse formatter]])
     (:require [ology.storage :refer [insert-log-entry insert-log-entries drop-log-index ensure-log-index]])
-)
+    (:import (java.security MessageDigest)))
 
 (import java.net.URL)
 
 (def line-re #"^([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\")$")
 
 (def log-date-formatter (formatter "EEE MMM dd HH:mm:ss zzz yyyy"))
+
+(def batch-size 1000)
+
+(defn checksum
+  "Generate a checksum for the given string"
+  [token]
+  (let [hash-bytes
+         (doto (java.security.MessageDigest/getInstance "SHA1")
+               (.reset)
+               (.update (.getBytes token)))]
+       (.toString
+         (new java.math.BigInteger 1 (.digest hash-bytes)) ; Positive and the size of the number
+         20)))
 
 ;; External APIs.
 ; This is designed to work against the ajutor DOI RA service which returns extra headers for speed.
@@ -145,20 +158,20 @@
 )
 
 (defn parse-line 
-  "Parse a line from the log, return vector of [ip, date, doi, referrer URL]"
+  "Parse a line from the log, return vector of [ip, date, doi, referrer URL, original]"
   [line]
     (let [match (re-find (re-matcher line-re line))]
         (when (seq match)
             (let [ip (match 1)
                   date (strip-quotes (match 3))
                   doi (match 7)
-                  referrer-url (convert-special-uri  (strip-quotes (match 9)))
-                  ]
-                [ip date doi referrer-url]))))
+                  referrer-url (convert-special-uri  (strip-quotes (match 9)))]
+                [ip date doi referrer-url line]))))
 
 (defn db-insert-format
-  "Take a vector of [ip date doi referrer-url ] and return a format for insertion into the mongo db."
-  [[ip date doi referrer-url] etlds]
+  "Take a vector of [ip date doi referrer-url ] and return a format for insertion into the mongo db.
+  Mongo doesn't allow indexing on more than 1k, and some of the refferer logs are longer than that. So we hash and index on that."
+  [[ip date doi referrer-url original] etlds]
   (let [main-domain (get-main-domain (get-host referrer-url) etlds)]
   {
    :ip ip
@@ -167,7 +180,9 @@
    :referrer referrer-url
    :subdomains (main-domain 0)
    :domain (main-domain 1)
-   :tld (main-domain 2)}))
+   :tld (main-domain 2)
+   :hash (checksum original)
+   }))
 
 (defn url-referrals
   "From a sequence of log lines return a sequence of [referral URL, DOI]"
@@ -196,7 +211,7 @@
 (defn -main [input-file-path]
   (with-open [log-file-reader (clojure.java.io/reader input-file-path)]
     (let [log-file-seq (line-seq log-file-reader)
-          referrals (url-referrals log-file-seq)
+          ;referrals (url-referrals log-file-seq)
           etlds (get-effective-tld-structure)
           
           ; Filter out lines that don't parse.
@@ -204,17 +219,16 @@
           db-insert-format (map #(db-insert-format %1 etlds) parsed-lines)
           ]
       (prn "Load" input-file-path)
-      (ensure-log-index)
-      ; (prn "Drop index")
-      ; (drop-log-index)
-      ; (doseq [item db-insert-format] (insert-log-entries item))
+
+      (prn "Drop index")
+      (drop-log-index)
       
-      (doseq [batch (partition 10 db-insert-format)] (prn batch) (insert-log-entries batch) (prn "**"))
-    
-    
-      ; (prn "Reindex")
-      ; (ensure-log-index)
-      ; (prn "Done")
+      (doseq [batch (partition batch-size batch-size nil db-insert-format)] (insert-log-entries batch))
+      
+      ; Putting the index back will delete the duplicates. There probably won't be any, but if two log files overlap then this will catch it.
+      (prn "Reindex")
+      (ensure-log-index)
+      (prn "Done")
     )
   )
 )

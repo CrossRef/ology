@@ -30,11 +30,10 @@
 
 ;
 (defn ensure-log-index []
-  ; Create an index on each field.
+  ; Create an index on each field except referrer.
   (ensure-index "entries" (array-map :ip 1))
   (ensure-index "entries" (array-map :date 1))
   (ensure-index "entries" (array-map :doi 1))
-  (ensure-index "entries" (array-map :referrer 1))
   (ensure-index "entries" (array-map :subdomains 1))
   (ensure-index "entries" (array-map :domain 1))
   (ensure-index "entries" (array-map :tld 1))

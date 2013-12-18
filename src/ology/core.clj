@@ -216,7 +216,12 @@
           
           ; Filter out lines that don't parse.
           parsed-lines (remove nil? (map parse-line log-file-seq))
-          db-insert-format (map #(db-insert-format %1 etlds) parsed-lines)
+          
+          ; Check the validity of each DOI, it might not be one of ours!
+          crossref-lines (filter #(validate-doi (get % 2)) parsed-lines)
+          
+          ; Transform into the right format for insertion into Mongo.
+          db-insert-format (map #(db-insert-format %1 etlds) crossref-lines)
           ]
       (prn "Load" input-file-path)
 

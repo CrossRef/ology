@@ -2,7 +2,7 @@
     (:gen-class)
     (:require [clj-http.client :as client])
     (:require [clj-time.format :refer [parse formatter]])
-    (:require [ology.storage :refer [insert-log-entry]])
+    (:require [ology.storage :refer [insert-log-entry insert-log-entries drop-log-index ensure-log-index]])
 )
 
 (import java.net.URL)
@@ -204,7 +204,17 @@
           db-insert-format (map #(db-insert-format %1 etlds) parsed-lines)
           ]
       (prn "Load" input-file-path)
-      (doall (map insert-log-entry db-insert-format))
+      (ensure-log-index)
+      ; (prn "Drop index")
+      ; (drop-log-index)
+      ; (doseq [item db-insert-format] (insert-log-entries item))
+      
+      (doseq [batch (partition 10 db-insert-format)] (prn batch) (insert-log-entries batch) (prn "**"))
+    
+    
+      ; (prn "Reindex")
+      ; (ensure-log-index)
+      ; (prn "Done")
     )
   )
 )

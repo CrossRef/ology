@@ -3,7 +3,9 @@
             [ology.core :refer :all])
   
   (:require [clj-time.format :refer [parse]]
-            [clj-time.core :refer [year month day hour minute second]]))
+            [clj-time.core :as time]
+            [clj-time.coerce :as coerce])
+  )
 
 (deftest e-tlds
   (testing "Verify that get-main-domain does what it's meant to."
@@ -24,10 +26,19 @@
 
 (deftest date-formatter-test
   (testing "Date format works"
-    (let [parsed (parse log-date-formatter "Sun Sep 01 12:05:40 EDT 2013")]
-      (is (= (year parsed) 2013))  
-      (is (= (month parsed) 9))  
-      (is (= (day parsed) 1))  
-      (is (= (hour parsed) 16))  
-      (is (= (minute parsed) 05))  
-      (is (= (second parsed) 40)))))
+    (let [parsed (coerce/from-date (. log-date-formatter parse "Sun Sep 01 12:05:40 EDT 2013"))]
+      (is (= (time/year parsed) 2013))  
+      (is (= (time/month parsed) 9))  
+      (is (= (time/day parsed) 1))  
+      (is (= (time/hour parsed) 16))  
+      (is (= (time/minute parsed) 5))  
+      (is (= (time/second parsed) 40))
+      )
+    (let [parsed (coerce/from-date (. log-date-formatter parse "Tue Apr 16 17:09:33 UTC 2013"))]
+      (is (= (time/year parsed) 2013))  
+      (is (= (time/month parsed) 4))  
+      (is (= (time/day parsed) 16))  
+      (is (= (time/hour parsed) 17))  
+      (is (= (time/minute parsed) 9))  
+      (is (= (time/second parsed) 33)))))
+

@@ -2,16 +2,22 @@
     (:gen-class)
     (:require [clj-http.client :as client])
     (:require [clj-time.format :refer [parse formatter]])
-    (:require [ology.storage :refer [insert-log-entry insert-log-entries drop-log-index ensure-log-index]])
-    (:import (java.security MessageDigest)))
+    (:require [ology.storage :as storage])
+    (:import (java.security MessageDigest))
+    (:import (java.net URLEncoder))
+    (:import (org.joda.time.DateTimeZone))
+    (:import (org.joda.time.TimeZone))
+    (:import (java.text.SimpleDateFormat))
+    
+    )
 
 (import java.net.URL)
 
 (def line-re #"^([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\")$")
 
-(def log-date-formatter (formatter "EEE MMM dd HH:mm:ss zzz yyyy"))
+(def log-date-formatter (new java.text.SimpleDateFormat "EEE MMM dd HH:mm:ss zzz yyyy"))
 
-(def batch-size 1000)
+(def batch-size 10)
 
 (defn checksum
   "Generate a checksum for the given string"
@@ -28,13 +34,13 @@
 ; This is designed to work against the ajutor DOI RA service which returns extra headers for speed.
 (def doi-registration-authority-service-url "http://habanero:8000/ra/")
 
-
 (defn validate-doi
-  "Check if a CrossRef DOI is validate-doi. Return true or false. Throws java.net.SocketException"
+  "Check if a DOI is valid and registered with CrossRef. Return true or false or :error if the upstream server isn't availble."
   [doi]
-  (let
-    [response (client/get (str doi-registration-authority-service-url doi) {:accept :json :as :json})]
-    (= (-> response :headers "DOI-RA") "CrossRef")))
+  (try 
+  (let [response (client/get (str doi-registration-authority-service-url (URLEncoder/encode doi)) {:retry-handler (fn [ex try-count http-context] (< try-count 4))})]
+    (= (get (:headers response) "doi-ra") "CrossRef"))
+  (catch Exception _ :error)))
 
 ;; Helper functions.
 
@@ -139,7 +145,6 @@
 (defn convert-special-uri
   "For special uris, convert them into an HTTP host proxy form."
   [uri]
-  ; (prn "CSI" uri)
   (cond 
     
     ; Prefixes.
@@ -170,18 +175,20 @@
 
 (defn db-insert-format
   "Take a vector of [ip date doi referrer-url ] and return a format for insertion into the mongo db.
-  Mongo doesn't allow indexing on more than 1k, and some of the refferer logs are longer than that. So we hash and index on that."
-  [[ip date doi referrer-url original] etlds]
-  (let [main-domain (get-main-domain (get-host referrer-url) etlds)]
-  {
-   :ip ip
-   :date (parse log-date-formatter date)
-   :doi doi
-   :referrer referrer-url
-   :subdomains (main-domain 0)
-   :domain (main-domain 1)
-   :tld (main-domain 2)
-   :hash (checksum original)
+  Mongo doesn't allow indexing on more than 1k, and some of the refferer logs are longer than that. So we hash and index on that.
+  If there was an error deciding whether or not the DOI was valid, store that for later.
+  "
+  [[ip date doi referrer-url original] is-valid etlds]
+  (let [main-domain (get-main-domain (get-host referrer-url) etlds)] {
+   storage/ip-address ip
+   storage/date (. log-date-formatter parse date)
+   storage/doi doi
+   storage/referrer referrer-url
+   storage/subdomains (main-domain 0)
+   storage/domain (main-domain 1)
+   storage/tld (main-domain 2)
+   storage/hashed (checksum original)
+   storage/followup-ra (= is-valid :error)
    }))
 
 (defn url-referrals
@@ -217,22 +224,27 @@
           ; Filter out lines that don't parse.
           parsed-lines (remove nil? (map parse-line log-file-seq))
           
-          ; Check the validity of each DOI, it might not be one of ours!
-          crossref-lines (filter #(validate-doi (get % 2)) parsed-lines)
+          ; Zip with CrossRef DOI validation check, return tuples of [parsed, valid]
+          with-validation (map (fn [line] [line (validate-doi (get line 2))]) parsed-lines)
+          
+          ; Remove those that are known not to be valid. Let through errors.
+          crossref-lines (filter #(not= (get % 1) false) with-validation)
           
           ; Transform into the right format for insertion into Mongo.
-          db-insert-format (map #(db-insert-format %1 etlds) crossref-lines)
+          db-insert-format-lines (map (fn([[parsed-line is-valid]]
+                                          (db-insert-format parsed-line is-valid etlds))) crossref-lines)
           ]
       (prn "Load" input-file-path)
 
       (prn "Drop index")
-      (drop-log-index)
+      (storage/drop-log-index)
       
-      (doseq [batch (partition batch-size batch-size nil db-insert-format)] (insert-log-entries batch))
+      (prn "Insert")
+      (doseq [batch (partition batch-size batch-size nil db-insert-format-lines)] (storage/insert-log-entries batch))
       
       ; Putting the index back will delete the duplicates. There probably won't be any, but if two log files overlap then this will catch it.
       (prn "Reindex")
-      (ensure-log-index)
+      (storage/ensure-log-index)
       (prn "Done")
     )
   )

@@ -14,6 +14,9 @@
   (connect! sa opts)
 )
 
+; Ignore server errors, continue inserting on error i.e. drop duplicates.
+(mg/set-default-write-concern! (new WriteConcern 0 1000 false false true))
+
 ; Short field names for storing in Mongo.
 (def ip-address :i)
 (def date :d)
@@ -48,7 +51,7 @@
   
   ; Create a unique index on the hash, with other bits (except the referrer url which might be massive).
   ; This index will be dropped and re-added to catch duplicates.
-  (ensure-index "entries" (array-map hashed 1 ip-address 1 date 1 doi 1) {:unique true "dropDups" true}))
+  (ensure-index "entries" (array-map hashed 1 ip-address 1 date 1 doi 1) {:unique true "dropDups" true :sparse true}))
 
 (defn insert-log-entry [entry]
   (update "entries" entry entry :upsert true))

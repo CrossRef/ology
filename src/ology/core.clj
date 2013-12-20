@@ -17,7 +17,7 @@
 
 (def log-date-formatter (new java.text.SimpleDateFormat "EEE MMM dd HH:mm:ss zzz yyyy"))
 
-(def batch-size 10)
+(def batch-size 1000)
 
 (defn checksum
   "Generate a checksum for the given string"
@@ -41,6 +41,13 @@
   (let [response (client/get (str doi-registration-authority-service-url (URLEncoder/encode doi)) {:retry-handler (fn [ex try-count http-context] (< try-count 4))})]
     (= (get (:headers response) "doi-ra") "CrossRef"))
   (catch Exception _ :error)))
+
+(defn validate-doi-not
+  "Pretend to validate the DOI but don't (it's too slow)."
+  [doi]
+  :error)
+
+
 
 ;; Helper functions.
 
@@ -225,7 +232,7 @@
           parsed-lines (remove nil? (map parse-line log-file-seq))
           
           ; Zip with CrossRef DOI validation check, return tuples of [parsed, valid]
-          with-validation (map (fn [line] [line (validate-doi (get line 2))]) parsed-lines)
+          with-validation (map (fn [line] [line (validate-doi-not (get line 2))]) parsed-lines)
           
           ; Remove those that are known not to be valid. Let through errors.
           crossref-lines (filter #(not= (get % 1) false) with-validation)
@@ -236,15 +243,17 @@
           ]
       (prn "Load" input-file-path)
 
-      (prn "Drop index")
-      (storage/drop-log-index)
+      (prn "Ensure initial index")
+      (storage/ensure-log-index)
+      ; (prn "Drop index")
+      ; (storage/drop-log-index)
       
       (prn "Insert")
       (doseq [batch (partition batch-size batch-size nil db-insert-format-lines)] (storage/insert-log-entries batch))
       
       ; Putting the index back will delete the duplicates. There probably won't be any, but if two log files overlap then this will catch it.
-      (prn "Reindex")
-      (storage/ensure-log-index)
+      ; (prn "Reindex")
+      ; (storage/ensure-log-index)
       (prn "Done")
     )
   )

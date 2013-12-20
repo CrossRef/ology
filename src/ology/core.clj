@@ -17,7 +17,7 @@
 
 (def log-date-formatter (new java.text.SimpleDateFormat "EEE MMM dd HH:mm:ss zzz yyyy"))
 
-(def batch-size 1000)
+(def batch-size 100000)
 
 (defn checksum
   "Generate a checksum for the given string"
@@ -222,7 +222,9 @@
     (sort #(compare (second %2) (second %1)) count-vector)))
 
 
-(defn -main [input-file-path]
+(defn -main
+  "Accept filename as first argument, then arguments, such as [drop-index-first, build-index-first, build-index-after]"
+  [input-file-path & options]
   (with-open [log-file-reader (clojure.java.io/reader input-file-path)]
     (let [log-file-seq (line-seq log-file-reader)
           ;referrals (url-referrals log-file-seq)
@@ -242,18 +244,24 @@
                                           (db-insert-format parsed-line is-valid etlds))) crossref-lines)
           ]
       (prn "Load" input-file-path)
-
-      (prn "Ensure initial index")
-      (storage/ensure-log-index)
-      ; (prn "Drop index")
-      ; (storage/drop-log-index)
       
+
+      (when (and (sequential? options) (not= -1 (.indexOf options "build-index-first")))
+        (prn "Building index first")
+        (storage/ensure-log-index))
+      
+      (when (and (sequential? options) (not= -1 (.indexOf options "drop-index-first")))
+        (prn "Dropping initial index.")
+        (storage/drop-log-index))
+
       (prn "Insert")
       (doseq [batch (partition batch-size batch-size nil db-insert-format-lines)] (storage/insert-log-entries batch))
       
       ; Putting the index back will delete the duplicates. There probably won't be any, but if two log files overlap then this will catch it.
-      ; (prn "Reindex")
-      ; (storage/ensure-log-index)
+      (when (and (sequential? options) (not= -1 (.indexOf options "build-index-after")))
+        (prn "Building index after")
+        (storage/ensure-log-index))
+
       (prn "Done")
     )
   )

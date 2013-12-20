@@ -15,7 +15,8 @@
 )
 
 ; Ignore server errors, continue inserting on error i.e. drop duplicates.
-(mg/set-default-write-concern! (new WriteConcern 0 1000 false false true))
+(mg/set-default-write-concern! WriteConcern/ACKNOWLEDGED)
+; (mg/set-default-write-concern! (new WriteConcern 0 1000 true true true))
 
 ; Short field names for storing in Mongo.
 (def ip-address :i)

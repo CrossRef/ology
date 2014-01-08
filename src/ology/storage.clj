@@ -1,22 +1,24 @@
 (ns ology.storage
     (:gen-class)
-    (:require [monger.core :as mg])
     (:import
       [com.mongodb MongoOptions ServerAddress]
+      [com.mongodb MapReduceCommand$OutputType MapReduceOutput]
       [org.bson.types ObjectId] [com.mongodb DB WriteConcern])
-    (:use
-      [monger.core :only [connect! connect set-db! get-db]]
-      [monger.collection :only [insert insert-batch ensure-index drop-index update]])
-    (:require monger.joda-time))
+    (:require
+      [monger.core :as mg]
+      [monger.collection :as mc])
+    (:require monger.joda-time)
+    
+    
+    )
 
 (let [^MongoOptions opts (mg/mongo-options :threads-allowed-to-block-for-connection-multiplier 300 :keepGoing true)
       ^ServerAddress sa  (mg/server-address "127.0.0.1" 27017)]
-  (connect! sa opts)
+  (mg/connect! sa opts)
 )
 
 ; Ignore server errors, continue inserting on error i.e. drop duplicates.
 (mg/set-default-write-concern! WriteConcern/ACKNOWLEDGED)
-; (mg/set-default-write-concern! (new WriteConcern 0 1000 true true true))
 
 ; Short field names for storing in Mongo.
 (def ip-address :i)
@@ -28,34 +30,109 @@
 (def hashed :h)
 (def followup-ra :f)
 (def referrer :r)
+(def tally :c) ; Not used here but used in the javascript map reduce.
 
-(set-db! (mg/get-db "referral-logs"))
+(mg/set-db! (mg/get-db "referral-logs"))
 
 ; Index DOIs uniquely by DOI.
 
 (defn drop-log-index [] 
   (try
-    (drop-index "entries" "h_1_i_1_d_1_o_1")
+    (mc/drop-index "entries" "h_1_i_1_d_1_o_1")
     ; If there's no index there already, fail silently.
     (catch com.mongodb.CommandFailureException _ nil)))
 
 ;
 (defn ensure-log-index []
   ; Create an index on each field except referrer.
-  (ensure-index "entries" (array-map ip-address 1))
-  (ensure-index "entries" (array-map date 1))
-  (ensure-index "entries" (array-map doi 1))
-  (ensure-index "entries" (array-map subdomains 1))
-  (ensure-index "entries" (array-map domain 1))
-  (ensure-index "entries" (array-map tld 1)) 
-  (ensure-index "entries" (array-map followup-ra 1))
+  (mc/ensure-index "entries" (array-map ip-address 1))
+  (mc/ensure-index "entries" (array-map date 1))
+  (mc/ensure-index "entries" (array-map doi 1))
+  (mc/ensure-index "entries" (array-map subdomains 1))
+  (mc/ensure-index "entries" (array-map domain 1))
+  (mc/ensure-index "entries" (array-map tld 1)) 
+  (mc/ensure-index "entries" (array-map followup-ra 1))
   
   ; Create a unique index on the hash, with other bits (except the referrer url which might be massive).
   ; This index will be dropped and re-added to catch duplicates.
-  (ensure-index "entries" (array-map hashed 1 ip-address 1 date 1 doi 1) {:unique true "dropDups" true :sparse true}))
+  (mc/ensure-index "entries" (array-map hashed 1 ip-address 1 date 1 doi 1) {:unique true "dropDups" true :sparse true}))
 
 (defn insert-log-entry [entry]
-  (update "entries" entry entry :upsert true))
+  (mc/update "entries-intermediate" entry entry :upsert true))
 
 (defn insert-log-entries [entries]
-  (insert-batch "entries" entries))
+  (mc/insert-batch "entries-intermediate" entries))
+
+(defn create-intermediate-collection
+  "Drop and create intermediate collection."
+  []
+  (mc/drop "entries-intermediate")
+  
+  ; No need to set indexes on this. We do a bulk insert and then iterate inside Mongo.
+  (mc/create "entries-intermediate" {})
+)
+
+(defn clear-aggregates-for-date-range
+  "Clear the aggregate table for date range of the intermediate collection."
+  []
+  (let [results (mc/aggregate "entries-intermediate" [{"$group" {"_id" 0 :min-date {"$min" "$d"} :max-date {"$max" "$d"}}}])
+        start (-> results first :max-date)
+        end (-> results first :min-date)
+        ; The dates in the aggregate table don't have the original times, so generalise these to 'whole day'.
+        start-start-of-day (.withTimeAtStartOfDay start)
+        end-end-of-day (.withTime start 23 59 59 999)]
+  (prn "R" results)
+  (prn "Removing dates from aggregate tables between" start "and" end "really" start-start-of-day "and" end-end-of-day)
+  (prn "deleting" (mc/count "entries-aggregated-day" {"_id.d" {"$gte" start-start-of-day "$lt" end-end-of-day}}) "from entries-aggregated-day")
+  (prn "deleting" (mc/count "entries-aggregated-week" {"_id.d" {"$gte" start-start-of-day "$lt" end-end-of-day}}) "from entries-aggregated-week")
+  (prn "deleting" (mc/count "entries-aggregated-month" {"_id.d" {"$gte" start-start-of-day "$lt" end-end-of-day}}) "from entries-aggregated-month")
+  
+  (mc/remove "entries-aggregated-day" {"_id.d" {"$gte" start-start-of-day "$lt" end-end-of-day}})
+  (mc/remove "entries-aggregated-week" {"_id.d" {"$gte" start-start-of-day "$lt" end-end-of-day}})
+  (mc/remove "entries-aggregated-month" {"_id.d" {"$gte" start-start-of-day "$lt" end-end-of-day}})
+  
+  ))
+
+(defn update-aggregates
+  "Update aggregates from the intermediate collection"
+  []
+  ; Set the hour to 1, otherwise the date is recorded as midnight and shows up as the previous day.
+  (mc/map-reduce
+                  "entries-intermediate"
+                  "function() {
+                    emit({
+                      'o': this.o, 's': this.s, 'n': this.n, 'l': this.l,
+                      'di': {'y': this.d.getFullYear(), 'm': this.d.getMonth()+1, 'd': this.d.getDate()},
+                      'd': new Date(this.d.getFullYear(), this.d.getMonth(), this.d.getDate(), 1)}, 1)}"
+                  "function(previous, current) {var count = 0; for (index in current) { count += current[index]; } return count; }"
+                  "entries-aggregated-day"
+                  MapReduceCommand$OutputType/MERGE {})
+
+  ; http://stackoverflow.com/questions/7765767/
+  ; http://stackoverflow.com/questions/16590500/
+  (mc/map-reduce
+                  "entries-intermediate"
+                  "function() {
+                    var onejan = new Date(this.d.getFullYear(),0,1);
+                    var weekNumber = Math.ceil((((this.d - onejan) / 86400000) + onejan.getDay()+1)/7);
+                    var weekDate = new Date(this.d.getFullYear(), 0, (1 + (weekNumber - 1) * 7)); 
+                    emit({'o': this.o, 's': this.s, 'n': this.n, 'l': this.l, 'di': {'y': this.d.getFullYear(), 'w': weekNumber}, 'd': weekDate}, 1);
+                  }"
+                  "function(previous, current) {var count = 0; for (index in current) { count += current[index]; } return count; }"
+                  "entries-aggregated-week"
+                  MapReduceCommand$OutputType/MERGE {})
+  (mc/map-reduce
+                  "entries-intermediate"
+                  "function() {
+                    emit(
+                     {'o': this.o,
+                      's': this.s, 'n': this.n, 'l': this.l
+                      //'di': {'y': this.d.getFullYear(), 'm': this.d.getMonth()+1}, 'd': new Date(this.d.getFullYear(), this.d.getMonth(), 1)
+                     },
+                  1)
+                  }"
+                  "function(previous, current) {var count = 0; for (index in current) { count += current[index]; } return count; }"
+                  "entries-aggregated-month"
+                  MapReduceCommand$OutputType/MERGE {})
+  
+  )

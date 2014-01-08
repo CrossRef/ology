@@ -17,7 +17,7 @@
 
 (def log-date-formatter (new java.text.SimpleDateFormat "EEE MMM dd HH:mm:ss zzz yyyy"))
 
-(def batch-size 100000)
+(def batch-size 10000)
 
 (defn checksum
   "Generate a checksum for the given string"
@@ -221,48 +221,35 @@
         count-vector (into [] counts)]
     (sort #(compare (second %2) (second %1)) count-vector)))
 
-
 (defn -main
   "Accept filename as first argument, then arguments, such as [drop-index-first, build-index-first, build-index-after]"
-  [input-file-path & options]
-  (with-open [log-file-reader (clojure.java.io/reader input-file-path)]
-    (let [log-file-seq (line-seq log-file-reader)
-          ;referrals (url-referrals log-file-seq)
-          etlds (get-effective-tld-structure)
-          
-          ; Filter out lines that don't parse.
-          parsed-lines (remove nil? (map parse-line log-file-seq))
-          
-          ; Zip with CrossRef DOI validation check, return tuples of [parsed, valid]
-          with-validation (map (fn [line] [line (validate-doi-not (get line 2))]) parsed-lines)
-          
-          ; Remove those that are known not to be valid. Let through errors.
-          crossref-lines (filter #(not= (get % 1) false) with-validation)
-          
-          ; Transform into the right format for insertion into Mongo.
-          db-insert-format-lines (map (fn([[parsed-line is-valid]]
-                                          (db-insert-format parsed-line is-valid etlds))) crossref-lines)
-          ]
-      (prn "Load" input-file-path)
-      
+  [& input-file-paths]
+  (let [etlds (get-effective-tld-structure)]
+    (storage/create-intermediate-collection)
+    
+    (doseq [input-file-path input-file-paths]
+      (prn "Inserting from" input-file-path)
+      (with-open [log-file-reader (clojure.java.io/reader input-file-path)]
+        (let [log-file-seq (line-seq log-file-reader)
 
-      (when (and (sequential? options) (not= -1 (.indexOf options "build-index-first")))
-        (prn "Building index first")
-        (storage/ensure-log-index))
-      
-      (when (and (sequential? options) (not= -1 (.indexOf options "drop-index-first")))
-        (prn "Dropping initial index.")
-        (storage/drop-log-index))
+              ; Filter out lines that don't parse.
+              parsed-lines (remove nil? (map parse-line log-file-seq))
+              
+              ; Zip with CrossRef DOI validation check, return tuples of [parsed, valid]
+              with-validation (map (fn [line] [line (validate-doi-not (get line 2))]) parsed-lines)
+              
+              ; Remove those that are known not to be valid. Let through errors.
+              crossref-lines (filter #(not= (get % 1) false) with-validation)
+              
+              ; Transform into the right format for insertion into Mongo.
+              db-insert-format-lines (map (fn([[parsed-line is-valid]]
+                                              (db-insert-format parsed-line is-valid etlds))) crossref-lines)
+              ]
+          (prn "Insert into intermediate collection")
+          (doseq [batch (partition batch-size batch-size nil db-insert-format-lines)] (storage/insert-log-entries batch)))))
 
-      (prn "Insert")
-      (doseq [batch (partition batch-size batch-size nil db-insert-format-lines)] (storage/insert-log-entries batch))
-      
-      ; Putting the index back will delete the duplicates. There probably won't be any, but if two log files overlap then this will catch it.
-      (when (and (sequential? options) (not= -1 (.indexOf options "build-index-after")))
-        (prn "Building index after")
-        (storage/ensure-log-index))
-
-      (prn "Done")
-    )
-  )
-)
+    (prn "Clearing aggregates table")
+    (storage/clear-aggregates-for-date-range)
+    (prn "Running aggregation")
+    (storage/update-aggregates)      
+    (prn "Done")))

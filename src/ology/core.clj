@@ -19,6 +19,9 @@
 
 (def batch-size 10000)
 
+; Keep a list of known DOIs for this run. Used for filtering in the aggregation later.
+(def known-dois (atom #{}))
+
 (defn checksum
   "Generate a checksum for the given string"
   [token]
@@ -178,6 +181,9 @@
                   date (strip-quotes (match 3))
                   doi (match 7)
                   referrer-url (convert-special-uri  (strip-quotes (match 9)))]
+                
+                ; We have a DOI. Add this to the list of known DOIs.
+                (swap! known-dois conj doi)
                 [ip date doi referrer-url line]))))
 
 (defn db-insert-format
@@ -248,8 +254,14 @@
           (prn "Insert into intermediate collection")
           (doseq [batch (partition batch-size batch-size nil db-insert-format-lines)] (storage/insert-log-entries batch)))))
 
-    (prn "Clearing aggregates table")
-    (storage/clear-aggregates-for-date-range)
-    (prn "Running aggregation")
-    (storage/update-aggregates)      
+    (prn "Found" (count @known-dois) "DOIs")
+    
+    (prn "Getting inserted date range")
+    (let [[start-date end-date] (storage/get-date-range)]
+      (prn "Clearing aggregates table between" start-date "and" end-date)
+      (storage/clear-aggregates-for-date-range start-date end-date)
+
+      (prn "Running aggregation")
+      (storage/update-aggregates-group-partitioned start-date end-date @known-dois))
+          
     (prn "Done")))

@@ -8,6 +8,7 @@
       [monger.core :as mg]
       [monger.collection :as mc])
     (:require monger.joda-time)
+    (:require [clj-time.core :as time])
     
     
     )
@@ -33,8 +34,6 @@
 (def tally :c) ; Not used here but used in the javascript map reduce.
 
 (mg/set-db! (mg/get-db "referral-logs"))
-
-; Index DOIs uniquely by DOI.
 
 (defn drop-log-index [] 
   (try
@@ -72,30 +71,91 @@
   (mc/create "entries-intermediate" {})
 )
 
-(defn clear-aggregates-for-date-range
-  "Clear the aggregate table for date range of the intermediate collection."
+(defn start-of-day [d] (.withTimeAtStartOfDay d))
+(defn end-of-day [d] (.withTime d 23 59 59 999))
+
+(defn get-date-range
+  "Get range of dates, return start of earliest day, end of latest day."
   []
   (let [results (mc/aggregate "entries-intermediate" [{"$group" {"_id" 0 :min-date {"$min" "$d"} :max-date {"$max" "$d"}}}])
-        start (-> results first :max-date)
-        end (-> results first :min-date)
+        start (-> results first :min-date)
+        end (-> results first :max-date)
         ; The dates in the aggregate table don't have the original times, so generalise these to 'whole day'.
-        start-start-of-day (.withTimeAtStartOfDay start)
-        end-end-of-day (.withTime start 23 59 59 999)]
-  (prn "R" results)
-  (prn "Removing dates from aggregate tables between" start "and" end "really" start-start-of-day "and" end-end-of-day)
-  (prn "deleting" (mc/count "entries-aggregated-day" {"_id.d" {"$gte" start-start-of-day "$lt" end-end-of-day}}) "from entries-aggregated-day")
-  (prn "deleting" (mc/count "entries-aggregated-week" {"_id.d" {"$gte" start-start-of-day "$lt" end-end-of-day}}) "from entries-aggregated-week")
-  (prn "deleting" (mc/count "entries-aggregated-month" {"_id.d" {"$gte" start-start-of-day "$lt" end-end-of-day}}) "from entries-aggregated-month")
-  
-  (mc/remove "entries-aggregated-day" {"_id.d" {"$gte" start-start-of-day "$lt" end-end-of-day}})
-  (mc/remove "entries-aggregated-week" {"_id.d" {"$gte" start-start-of-day "$lt" end-end-of-day}})
-  (mc/remove "entries-aggregated-month" {"_id.d" {"$gte" start-start-of-day "$lt" end-end-of-day}})
-  
-  ))
+        start-start-of-day (start-of-day start)
+        end-end-of-day (end-of-day end)]
+    (prn "returning" start-start-of-day end-end-of-day)
+  [start-start-of-day end-end-of-day]))
 
-(defn update-aggregates
-  "Update aggregates from the intermediate collection"
+(defn clear-aggregates-for-date-range
+  "Clear the aggregate table for date range of the intermediate collection."
+  [start end]
+  (mc/remove "entries-aggregated-day" {"_id.d" {"$gte" start "$lt" end}})
+  (mc/remove "entries-aggregated-week" {"_id.d" {"$gte" start "$lt" end}})
+  (mc/remove "entries-aggregated-month" {"_id.d" {"$gte" start "$lt" end}}))
+
+
+;http://stackoverflow.com/questions/12030322
+(defn date-interval
+  ([start end] (date-interval start end []))
+  ([start end interval]
+   (if (time/after? start end)
+     interval
+     (recur (time/plus start (time/days 1)) end (concat interval [start])))))
+
+
+(defn update-aggregates-group-partitioned
+  "Update aggregates from the intermediate collection. Uses the aggregate/group functionality."
+  [start end dois]
+  
+  ; Filter into DOIs per day to keep the aggregation pipline the right size.
+  ; The group operation requires loading the entire set into memory.
+  ; TODO if this approach is fast enough for real data (splitting on 2 dimensions) then the group can be simplified.
+  (doseq [day (date-interval start end)
+          doi dois]
+    ; (prn "Update aggregate for" day (start-of-day day) "and" doi)
+    
+    (let [results
+      (mc/aggregate "entries-intermediate" [
+      {"$match" {
+        "d" {"$gt" (start-of-day day) 
+             "$lt" (end-of-day day)}  
+        "o" doi
+       }}
+      ; Carry through the actual date and the date in numbers for ease of querying later.
+      {"$project" {
+                   "o" "$o"
+                   "s" "$s"
+                   "n" "$n"
+                   "l" "$l"
+                   "d" "$d"
+                   "date" {"y" {"$year" "$d"}, "m" {"$month" "$d"}, "d" {"$dayOfMonth" "$d"}}}}
+      {"$group" {
+            "_id" {
+                "o" "$o"
+                "y" "$date.y"
+                "m" "$date.m"
+                "d" "$date.d"
+                "dt" "$d"
+            },
+            "count" {"$sum" 1}
+      }}])]
+    
+    ; Depending on the initial filtering, there should be only one result, or a small number
+    ; We can't upsert batches, so iterate over the small range.
+    (doseq [result results] (mc/update "entries-aggregated-day" result result :upsert true)))))
+
+(defn update-aggregates-group-naive
+  "Update aggregates from the intermediate collection. Uses the aggregate/group functionality."
   []
+  ; TODO  retired
+  ; This doesn't work because for the group to work mongo has to read the entire set into RAM.
+  (mc/aggregate "entries-intermediate" [{"$group" {"_id" 0 :min-date {"$min" "$d"} :max-date {"$max" "$d"}}}])
+)
+
+(defn update-aggregates-mapreduce
+  "Update aggregates from the intermediate collection. Uses map/reduce functionality."
+  []
+  ; TODO retired. An overnight run on 78 million records managed 3% in 14 hours.
   ; Set the hour to 1, otherwise the date is recorded as midnight and shows up as the previous day.
   (mc/map-reduce
                   "entries-intermediate"
@@ -133,6 +193,4 @@
                   }"
                   "function(previous, current) {var count = 0; for (index in current) { count += current[index]; } return count; }"
                   "entries-aggregated-month"
-                  MapReduceCommand$OutputType/MERGE {})
-  
-  )
+                  MapReduceCommand$OutputType/MERGE {}))

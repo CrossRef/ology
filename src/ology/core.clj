@@ -192,13 +192,14 @@
   Mongo doesn't allow indexing on more than 1k, and some of the refferer logs are longer than that. So we hash and index on that.
   If there was an error deciding whether or not the DOI was valid, store that for later.
   "
-  [[ip date doi referrer-url original] is-valid etlds]
+  [[ip the-date doi referrer-url original] is-valid etlds]
+  
   (let [main-domain (get-main-domain (get-host referrer-url) etlds)] {
    storage/ip-address ip
-   storage/date (. log-date-formatter parse date)
+   storage/date-field (. log-date-formatter parse the-date)
    storage/doi doi
    storage/referrer referrer-url
-   storage/subdomains (main-domain 0)
+   storage/subdomain (main-domain 0)
    storage/domain (main-domain 1)
    storage/tld (main-domain 2)
    ; storage/hashed (checksum original)
@@ -249,9 +250,8 @@
               crossref-lines (filter #(not= (get % 1) false) with-validation)
               
               ; Transform into the right format for insertion into Mongo.
-              ; TODO swapped last argument from crossref-lines to parsed-lines.
               db-insert-format-lines (map (fn([[parsed-line is-valid]]
-                                              (db-insert-format parsed-line is-valid etlds))) parsed-lines)
+                                              (db-insert-format parsed-line is-valid etlds))) with-validation)
               ]
           (prn "Insert into intermediate collection")
           (doseq [batch (partition batch-size batch-size nil db-insert-format-lines)] (storage/insert-log-entries batch)))))
@@ -265,7 +265,7 @@
 
       (prn "Running aggregation")
       (storage/update-aggregates-group-partitioned start-date end-date @known-dois)
-      ; (storage/update-aggregates-count-partitioned start-date end-date @known-dois)
+      
       )
           
     (prn "Done")))

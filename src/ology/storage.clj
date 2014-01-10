@@ -23,15 +23,20 @@
 
 ; Short field names for storing in Mongo.
 (def ip-address :i)
-(def date :d)
+(def date-field :d)
 (def doi :o)
-(def subdomains :s)
+(def subdomain :s)
 (def domain :n)
 (def tld :l)
 (def hashed :h)
 (def followup-ra :f)
 (def referrer :r)
 (def tally :c) ; Not used here but used in the javascript map reduce.
+(def year-field :y)
+(def month-field :m)
+(def day-field :a)
+
+(defn $ [a] (str "$" (name a)))
 
 (mg/set-db! (mg/get-db "referral-logs"))
 
@@ -46,16 +51,16 @@
 ; (defn ensure-log-index []
 ;   ; Create an index on each field except referrer.
 ;   (mc/ensure-index "entries" (array-map ip-address 1))
-;   (mc/ensure-index "entries" (array-map date 1))
+;   (mc/ensure-index "entries" (array-map date-field 1))
 ;   (mc/ensure-index "entries" (array-map doi 1))
-;   (mc/ensure-index "entries" (array-map subdomains 1))
+;   (mc/ensure-index "entries" (array-map subdomain 1))
 ;   (mc/ensure-index "entries" (array-map domain 1))
 ;   (mc/ensure-index "entries" (array-map tld 1)) 
 ;   (mc/ensure-index "entries" (array-map followup-ra 1))
   
   ; Create a unique index on the hash, with other bits (except the referrer url which might be massive).
   ; This index will be dropped and re-added to catch duplicates.
-  ; (mc/ensure-index "entries" (array-map hashed 1 ip-address 1 date 1 doi 1) {:unique true "dropDups" true :sparse true}))
+  ; (mc/ensure-index "entries" (array-map hashed 1 ip-address 1 date-field 1 doi 1) {:unique true "dropDups" true :sparse true}))
 
 (defn insert-log-entry [entry]
   (mc/update "entries-intermediate" entry entry :upsert true))
@@ -93,10 +98,8 @@
   [start end]
   ; NB The structure of the date, "_id.dt" vs "dt" depends on whether the map-reduce or aggregation is used.
   ; <= rather than < because the end value is end-of-day for that date.
-  (mc/remove "entries-aggregated-day" {"dt" {"$gte" start "$lte" end}})
-  (prn "C" (mc/count "entries-aggregated-day" {"dt" {"$gte" start "$lte" end}}))
-  (mc/remove "entries-aggregated-week" {"dt" {"$gte" start "$lte" end}})
-  (mc/remove "entries-aggregated-month" {"dt" {"$gte" start "$lte" end}}))
+  (prn "Remove " (mc/count "entries-aggregated-day" {date-field {"$gte" start "$lte" end}}))
+  (mc/remove "entries-aggregated-day" {date-field {"$gte" start "$lte" end}}))
 
 
 ;http://stackoverflow.com/questions/12030322
@@ -111,9 +114,11 @@
 (defn update-aggregates-group-partitioned
   "Update aggregates from the intermediate collection. Uses the aggregate/group functionality."
   [start end dois]
+  
+  ; TODO not used because it lacks the flexibility.
 
   (prn "Indexing intermediate collection")  
-  (mc/ensure-index "entries-intermediate" (array-map date 1 doi 1))
+  (mc/ensure-index "entries-intermediate" (array-map date-field 1 doi 1))
 
   (prn "Performing aggregation with" (* (count (date-interval start end)) (count dois)) "steps")
     
@@ -121,34 +126,41 @@
   ; The group operation requires loading the entire set into memory.
   ; TODO if this approach is fast enough for real data (splitting on 2 dimensions) then the group can be simplified.
   (doseq [day (date-interval start end)
-          doi dois]
+          the-doi dois]
     ; (prn "Update aggregate for" day (start-of-day day) "and" doi)
-    
     (let [results
       (mc/aggregate "entries-intermediate" [
       {"$match" {
-        "d" {"$gt" (start-of-day day) 
+        date-field {"$gt" (start-of-day day) 
              "$lt" (end-of-day day)}  
-        "o" doi
+        doi the-doi
        }}
       ; Carry through the actual date and the date in numbers for ease of querying later.
       {"$project" {
-                   "o" "$o"
-                   "s" "$s"
-                   "n" "$n"
-                   "l" "$l"
-                   "d" "$d"
-                   "date" {"y" {"$year" "$d"}, "m" {"$month" "$d"}, "d" {"$dayOfMonth" "$d"}}}}
+                   doi 1
+                   subdomain 1
+                   domain 1
+                   tld 1
+                   date-field 1
+                   year-field {"$year" ($ date-field)}
+                   month-field {"$month" ($ date-field)}
+                   day-field {"$dayOfMonth" ($ date-field)}
+                   }}
       {"$group" {
             "_id" {
-                "o" "$o"
-                "y" "$date.y"
-                "m" "$date.m"
-                "d" "$date.d"
-                "dt" "$d"
-            },
+                doi ($ doi)
+                subdomain ($ subdomain)
+                domain ($ domain)
+                tld ($ tld)
+                year-field ($ year-field)
+                month-field ($ month-field)
+                day-field ($ day-field)
+            }
             "count" {"$sum" 1}
-      }}])]
+            ; The group will collect dates on a given day. This will take an arbitrary date from that day.
+            ; The precise value doesn't really matter.
+            date-field {"$first" ($ date-field)}
+            }}])]
     
     ; Depending on the initial filtering, there should be only one result, or a small number
     ; We can't upsert batches, so iterate over the small range.
@@ -160,11 +172,11 @@
   [start end dois]
   
   (prn "Indexing intermediate collection")  
-  (mc/ensure-index "entries-intermediate" (array-map date 1 doi 1))
+  (mc/ensure-index "entries-intermediate" (array-map date-field 1 doi 1))
   
   (prn "Performing aggregation with" (* (count (date-interval start end)) (count dois)) "steps")
   
-  ; TODO: not used in favour of the partition + count method above, but this is more flexible and may be useful in future.
+  ; TODO: not used as it's not as flexible as group with subdomains.
   ; Filter into DOIs per day to keep the aggregation pipline the right size.
   ; The group operation requires loading the entire set into memory.
   (doseq [the-day (date-interval start end)
@@ -178,7 +190,6 @@
         "o" doi
        })
       result {
-            
                 "o" doi
                 "y" (time/year the-day)
                 "m" (time/month the-day)

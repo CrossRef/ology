@@ -35,26 +35,27 @@
 
 (mg/set-db! (mg/get-db "referral-logs"))
 
-(defn drop-log-index [] 
-  (try
-    (mc/drop-index "entries" "h_1_i_1_d_1_o_1")
-    ; If there's no index there already, fail silently.
-    (catch com.mongodb.CommandFailureException _ nil)))
+; TODO the entries table isn't being used currently. Remove.
+; (defn drop-log-index [] 
+;   (try
+;     (mc/drop-index "entries" "h_1_i_1_d_1_o_1")
+;     ; If there's no index there already, fail silently.
+;     (catch com.mongodb.CommandFailureException _ nil)))
 
-;
-(defn ensure-log-index []
-  ; Create an index on each field except referrer.
-  (mc/ensure-index "entries" (array-map ip-address 1))
-  (mc/ensure-index "entries" (array-map date 1))
-  (mc/ensure-index "entries" (array-map doi 1))
-  (mc/ensure-index "entries" (array-map subdomains 1))
-  (mc/ensure-index "entries" (array-map domain 1))
-  (mc/ensure-index "entries" (array-map tld 1)) 
-  (mc/ensure-index "entries" (array-map followup-ra 1))
+; ;
+; (defn ensure-log-index []
+;   ; Create an index on each field except referrer.
+;   (mc/ensure-index "entries" (array-map ip-address 1))
+;   (mc/ensure-index "entries" (array-map date 1))
+;   (mc/ensure-index "entries" (array-map doi 1))
+;   (mc/ensure-index "entries" (array-map subdomains 1))
+;   (mc/ensure-index "entries" (array-map domain 1))
+;   (mc/ensure-index "entries" (array-map tld 1)) 
+;   (mc/ensure-index "entries" (array-map followup-ra 1))
   
   ; Create a unique index on the hash, with other bits (except the referrer url which might be massive).
   ; This index will be dropped and re-added to catch duplicates.
-  (mc/ensure-index "entries" (array-map hashed 1 ip-address 1 date 1 doi 1) {:unique true "dropDups" true :sparse true}))
+  ; (mc/ensure-index "entries" (array-map hashed 1 ip-address 1 date 1 doi 1) {:unique true "dropDups" true :sparse true}))
 
 (defn insert-log-entry [entry]
   (mc/update "entries-intermediate" entry entry :upsert true))
@@ -69,6 +70,7 @@
   
   ; No need to set indexes on this. We do a bulk insert and then iterate inside Mongo.
   (mc/create "entries-intermediate" {})
+  (mc/ensure-index "entries-intermediate" (array-map date 1 doi 1))
 )
 
 (defn start-of-day [d] (.withTimeAtStartOfDay d))
@@ -89,9 +91,12 @@
 (defn clear-aggregates-for-date-range
   "Clear the aggregate table for date range of the intermediate collection."
   [start end]
-  (mc/remove "entries-aggregated-day" {"_id.d" {"$gte" start "$lt" end}})
-  (mc/remove "entries-aggregated-week" {"_id.d" {"$gte" start "$lt" end}})
-  (mc/remove "entries-aggregated-month" {"_id.d" {"$gte" start "$lt" end}}))
+  ; NB The structure of the date, "_id.dt" vs "dt" depends on whether the map-reduce or aggregation is used.
+  ; <= rather than < because the end value is end-of-day for that date.
+  (mc/remove "entries-aggregated-day" {"dt" {"$gte" start "$lte" end}})
+  (prn "C" (mc/count "entries-aggregated-day" {"dt" {"$gte" start "$lte" end}}))
+  (mc/remove "entries-aggregated-week" {"dt" {"$gte" start "$lte" end}})
+  (mc/remove "entries-aggregated-month" {"dt" {"$gte" start "$lte" end}}))
 
 
 ;http://stackoverflow.com/questions/12030322
@@ -143,6 +148,37 @@
     ; Depending on the initial filtering, there should be only one result, or a small number
     ; We can't upsert batches, so iterate over the small range.
     (doseq [result results] (mc/update "entries-aggregated-day" result result :upsert true)))))
+
+
+(defn update-aggregates-count-partitioned
+  "Update aggregates from the intermediate collection. Filter then count functionality."
+  [start end dois]
+  
+  ; TODO: not used in favour of the partition + count method above, but this is more flexible and may be useful in future.
+  ; Filter into DOIs per day to keep the aggregation pipline the right size.
+  ; The group operation requires loading the entire set into memory.
+  (doseq [the-day (date-interval start end)
+          doi dois]
+    ; (prn "Update aggregate for" day (start-of-day the-day) "and" doi)
+    
+    (let [the-count
+      (mc/count "entries-intermediate" {
+        "d" {"$gt" (start-of-day the-day) 
+             "$lt" (end-of-day the-day)}  
+        "o" doi
+       })
+      result {
+            
+                "o" doi
+                "y" (time/year the-day)
+                "m" (time/month the-day)
+                "d" (time/day the-day)
+                "dt" the-day
+                }
+              ]
+      (mc/insert "entries-aggregated-day" result)
+      )))
+      
 
 (defn update-aggregates-group-naive
   "Update aggregates from the intermediate collection. Uses the aggregate/group functionality."

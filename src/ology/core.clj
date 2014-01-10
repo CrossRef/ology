@@ -262,6 +262,8 @@
       (storage/clear-aggregates-for-date-range start-date end-date)
 
       (prn "Running aggregation")
-      (storage/update-aggregates-group-partitioned start-date end-date @known-dois))
+      (storage/update-aggregates-group-partitioned start-date end-date @known-dois)
+      ; (storage/update-aggregates-count-partitioned start-date end-date @known-dois)
+      )
           
     (prn "Done")))

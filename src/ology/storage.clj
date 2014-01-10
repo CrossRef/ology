@@ -69,8 +69,8 @@
   (mc/drop "entries-intermediate")
   
   ; No need to set indexes on this. We do a bulk insert and then iterate inside Mongo.
+  ; Index will be set later after insertion and before the aggregation.
   (mc/create "entries-intermediate" {})
-  (mc/ensure-index "entries-intermediate" (array-map date 1 doi 1))
 )
 
 (defn start-of-day [d] (.withTimeAtStartOfDay d))
@@ -111,7 +111,12 @@
 (defn update-aggregates-group-partitioned
   "Update aggregates from the intermediate collection. Uses the aggregate/group functionality."
   [start end dois]
-  
+
+  (prn "Indexing intermediate collection")  
+  (mc/ensure-index "entries-intermediate" (array-map date 1 doi 1))
+
+  (prn "Performing aggregation with" (* (count (date-interval start end)) (count dois)) "steps")
+    
   ; Filter into DOIs per day to keep the aggregation pipline the right size.
   ; The group operation requires loading the entire set into memory.
   ; TODO if this approach is fast enough for real data (splitting on 2 dimensions) then the group can be simplified.
@@ -153,6 +158,11 @@
 (defn update-aggregates-count-partitioned
   "Update aggregates from the intermediate collection. Filter then count functionality."
   [start end dois]
+  
+  (prn "Indexing intermediate collection")  
+  (mc/ensure-index "entries-intermediate" (array-map date 1 doi 1))
+  
+  (prn "Performing aggregation with" (* (count (date-interval start end)) (count dois)) "steps")
   
   ; TODO: not used in favour of the partition + count method above, but this is more flexible and may be useful in future.
   ; Filter into DOIs per day to keep the aggregation pipline the right size.

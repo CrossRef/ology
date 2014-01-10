@@ -24,6 +24,7 @@
 
 (defn checksum
   "Generate a checksum for the given string"
+  ; TODO removing the duplicate checking renders this unused. Remove.
   [token]
   (let [hash-bytes
          (doto (java.security.MessageDigest/getInstance "SHA1")
@@ -200,7 +201,7 @@
    storage/subdomains (main-domain 0)
    storage/domain (main-domain 1)
    storage/tld (main-domain 2)
-   storage/hashed (checksum original)
+   ; storage/hashed (checksum original)
    storage/followup-ra (= is-valid :error)
    }))
 
@@ -248,8 +249,9 @@
               crossref-lines (filter #(not= (get % 1) false) with-validation)
               
               ; Transform into the right format for insertion into Mongo.
+              ; TODO swapped last argument from crossref-lines to parsed-lines.
               db-insert-format-lines (map (fn([[parsed-line is-valid]]
-                                              (db-insert-format parsed-line is-valid etlds))) crossref-lines)
+                                              (db-insert-format parsed-line is-valid etlds))) parsed-lines)
               ]
           (prn "Insert into intermediate collection")
           (doseq [batch (partition batch-size batch-size nil db-insert-format-lines)] (storage/insert-log-entries batch)))))

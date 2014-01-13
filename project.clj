@@ -7,6 +7,8 @@
                  [clj-http "0.7.8"]
                  [clj-time "0.6.0"]
                  [org.clojure/data.json "0.2.3"]
+                 [org.clojure/tools.logging "0.2.6"]
+                 [environ "0.4.0"]
                  ]
   :main ^:skip-aot ology.core
   :target-path "target/%s"

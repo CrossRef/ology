@@ -8,8 +8,18 @@
     (:import (org.joda.time.DateTimeZone))
     (:import (org.joda.time.TimeZone))
     (:import (java.text.SimpleDateFormat))
-    
+    (:use [clojure.tools.logging :only (info error)])
+    (:use [environ.core])
     )
+
+
+; The URI filter for experimental tweaking.
+; If supplied, filter only to this domain.
+(def special-url-filter 
+  (or (env :url-filter) "")
+  )
+
+(prn "SUF" special-url-filter)
 
 (import java.net.URL)
 
@@ -184,8 +194,10 @@
                   referrer-url (convert-special-uri  (strip-quotes (match 9)))]
                 
                 ; We have a DOI. Add this to the list of known DOIs.
-                (swap! known-dois conj doi)
-                [ip date doi referrer-url line]))))
+                ; Check at this point that the domain matches. An empty string will return true.                
+                (when (.contains referrer-url special-url-filter)
+                  (swap! known-dois conj doi)
+                  [ip date doi referrer-url line])))))
 
 (defn db-insert-format
   "Take a vector of [ip date doi referrer-url ] and return a format for insertion into the mongo db.
@@ -206,21 +218,6 @@
    storage/followup-ra (= is-valid :error)
    }))
 
-(defn url-referrals
-  "From a sequence of log lines return a sequence of [referral URL, DOI]"
-  [lines]
-  (filter
-    ; Exclude those without referral URLs.
-    (fn [[url _]] (not (empty? url)))
-    (map
-      #(vector (% 3) (% 2))
-      (remove nil? (map parse-line lines)))))
-
-(defn subdomain-referrals
-  "From a sequence of [referral URL, DOI] return a sequence of [[subdomains, domain], doi]"
-  [referrals etlds]
-  (map (fn [[url doi]] [(get-main-domain (get-host url) etlds) doi])
-       referrals))
 
 (defn count-per-key
   "Map a map of [key vectors] to [key count]"
@@ -236,7 +233,7 @@
     (storage/create-intermediate-collection)
     
     (doseq [input-file-path input-file-paths]
-      (prn "Inserting from" input-file-path)
+      (info "Inserting from " input-file-path)
       (with-open [log-file-reader (clojure.java.io/reader input-file-path)]
         (let [log-file-seq (line-seq log-file-reader)
 
@@ -253,19 +250,24 @@
               db-insert-format-lines (map (fn([[parsed-line is-valid]]
                                               (db-insert-format parsed-line is-valid etlds))) with-validation)
               ]
-          (prn "Insert into intermediate collection")
-          (doseq [batch (partition batch-size batch-size nil db-insert-format-lines)] (storage/insert-log-entries batch)))))
+          (info "Insert into intermediate collection")
+          (doseq [batch (partition batch-size batch-size nil db-insert-format-lines)]
+            (info (str "Insert Batch length " (count batch) " starting " (first batch)))
+            (storage/insert-log-entries batch)))
+        (info (str "Done inserting from " input-file-path))
+        
+        ))
 
-    (prn "Found" (count @known-dois) "DOIs")
+    (info (str "Found " (count @known-dois) " DOIs"))
     
-    (prn "Getting inserted date range")
+    (info "Getting inserted date range")
     (let [[start-date end-date] (storage/get-date-range)]
-      (prn "Clearing aggregates table between" start-date "and" end-date)
+      (info (str "Clearing aggregates table between " start-date " and " end-date))
       (storage/clear-aggregates-for-date-range start-date end-date)
 
-      (prn "Running aggregation")
+      (info "Running aggregation")
       (storage/update-aggregates-group-partitioned start-date end-date @known-dois)
       
       )
           
-    (prn "Done")))
+    (info "Done")))

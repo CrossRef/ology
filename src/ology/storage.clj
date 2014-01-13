@@ -9,7 +9,7 @@
       [monger.collection :as mc])
     (:require monger.joda-time)
     (:require [clj-time.core :as time])
-    
+    (:use [clojure.tools.logging :only (info error)])
     
     )
 
@@ -90,7 +90,6 @@
         ; The dates in the aggregate table don't have the original times, so generalise these to 'whole day'.
         start-start-of-day (start-of-day start)
         end-end-of-day (end-of-day end)]
-    (prn "returning" start-start-of-day end-end-of-day)
   [start-start-of-day end-end-of-day]))
 
 (defn clear-aggregates-for-date-range
@@ -98,7 +97,7 @@
   [start end]
   ; NB The structure of the date, "_id.dt" vs "dt" depends on whether the map-reduce or aggregation is used.
   ; <= rather than < because the end value is end-of-day for that date.
-  (prn "Remove " (mc/count "entries-aggregated-day" {date-field {"$gte" start "$lte" end}}))
+  (info (str "Remove " (mc/count "entries-aggregated-day" {date-field {"$gte" start "$lte" end}})))
   (mc/remove "entries-aggregated-day" {date-field {"$gte" start "$lte" end}}))
 
 
@@ -117,10 +116,10 @@
   
   ; TODO not used because it lacks the flexibility.
 
-  (prn "Indexing intermediate collection")  
+  (info "Indexing intermediate collection")  
   (mc/ensure-index "entries-intermediate" (array-map date-field 1 doi 1))
 
-  (prn "Performing aggregation with" (* (count (date-interval start end)) (count dois)) "steps")
+  (info (str "Performing aggregation with " (* (count (date-interval start end)) (count dois)) " steps"))
     
   ; Filter into DOIs per day to keep the aggregation pipline the right size.
   ; The group operation requires loading the entire set into memory.
@@ -171,10 +170,10 @@
   "Update aggregates from the intermediate collection. Filter then count functionality."
   [start end dois]
   
-  (prn "Indexing intermediate collection")  
+  (info "Indexing intermediate collection")  
   (mc/ensure-index "entries-intermediate" (array-map date-field 1 doi 1))
   
-  (prn "Performing aggregation with" (* (count (date-interval start end)) (count dois)) "steps")
+  (info (str "Performing aggregation with " (* (count (date-interval start end)) (count dois)) " steps"))
   
   ; TODO: not used as it's not as flexible as group with subdomains.
   ; Filter into DOIs per day to keep the aggregation pipline the right size.

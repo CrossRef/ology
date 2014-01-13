@@ -16,6 +16,8 @@ or
 
     java -jar /path/to/jar.jar «path to log file»*
 
+If the URL_FILTER environment variable is set, then all referrer URLs will be filtered for this string.
+
 ## TODO
 
 Are there boundary issues caused by timezones?

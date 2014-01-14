@@ -213,7 +213,12 @@
     
     ; Depending on the initial filtering, there should be only one result, or a small number
     ; We can't upsert batches, so iterate over the small range.
-    (doseq [result results] (mc/update "entries-aggregated-day" result result :upsert true)))))
+    (doseq [result results]
+      (mc/update "entries-aggregated-day" 
+       ; Upsert query only on ID
+       {:_id (:_id result)}
+       ; But update whole thing including count.
+       result :upsert true)))))
 
 
 (defn update-aggregates-count-partitioned

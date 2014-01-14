@@ -19,7 +19,7 @@
   (or (env :url-filter) "")
   )
 
-(prn "SUF" special-url-filter)
+(info "Special URL filter: " special-url-filter)
 
 (import java.net.URL)
 
@@ -209,11 +209,11 @@
   (let [main-domain (get-main-domain (get-host referrer-url) etlds)] {
    storage/ip-address ip
    storage/date-field (. log-date-formatter parse the-date)
-   storage/doi doi
+   storage/doi-field doi
    storage/referrer referrer-url
-   storage/subdomain (main-domain 0)
-   storage/domain (main-domain 1)
-   storage/tld (main-domain 2)
+   storage/subdomain-field (main-domain 0)
+   storage/domain-field (main-domain 1)
+   storage/tld-field (main-domain 2)
    ; storage/hashed (checksum original)
    storage/followup-ra (= is-valid :error)
    }))
@@ -227,7 +227,7 @@
     (sort #(compare (second %2) (second %1)) count-vector)))
 
 (defn -main
-  "Accept filename as first argument, then arguments, such as [drop-index-first, build-index-first, build-index-after]"
+  "Accept list of log file paths"
   [& input-file-paths]
   (let [etlds (get-effective-tld-structure)]
     (storage/create-intermediate-collection)

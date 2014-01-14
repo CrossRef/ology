@@ -24,10 +24,10 @@
 ; Short field names for storing in Mongo.
 (def ip-address :i)
 (def date-field :d)
-(def doi :o)
-(def subdomain :s)
-(def domain :n)
-(def tld :l)
+(def doi-field :o)
+(def subdomain-field :s)
+(def domain-field :n)
+(def tld-field :l)
 (def hashed :h)
 (def followup-ra :f)
 (def referrer :r)
@@ -37,6 +37,9 @@
 (def day-field :a)
 
 (defn $ [a] (str "$" (name a)))
+
+; In the aggregation, some fields are nested under _id.
+(defn _id [a] (str "_id." (name a)))
 
 (mg/set-db! (mg/get-db "referral-logs"))
 
@@ -52,9 +55,9 @@
 ;   ; Create an index on each field except referrer.
 ;   (mc/ensure-index "entries" (array-map ip-address 1))
 ;   (mc/ensure-index "entries" (array-map date-field 1))
-;   (mc/ensure-index "entries" (array-map doi 1))
-;   (mc/ensure-index "entries" (array-map subdomain 1))
-;   (mc/ensure-index "entries" (array-map domain 1))
+;   (mc/ensure-index "entries" (array-map doi-field 1))
+;   (mc/ensure-index "entries" (array-map subdomain-field 1))
+;   (mc/ensure-index "entries" (array-map domain-field 1))
 ;   (mc/ensure-index "entries" (array-map tld 1)) 
 ;   (mc/ensure-index "entries" (array-map followup-ra 1))
   
@@ -102,6 +105,7 @@
 
 
 ;http://stackoverflow.com/questions/12030322
+; TODO this can stack overflow
 (defn date-interval
   ([start end] (date-interval start end []))
   ([start end interval]
@@ -109,6 +113,52 @@
      interval
      (recur (time/plus start (time/days 1)) end (concat interval [start])))))
 
+(defn query-days
+  "For a query, return a vector of the count per day and the total for the whole period."
+  [query]
+  (let [start-date (:start-date query)
+        end-date (:end-date query)
+        days (date-interval start-date end-date)
+        subdomain (:subdomain query)
+        domain (:domain query)
+        tld (:tld query)
+        doi (:doi query)
+        
+        count-for-day (fn [day]
+          (let [
+            match-arg-fns [
+            (fn [] (when (and start-date end-date) [["_id.y" (time/year day)] ["_id.m" (time/month day)] ["_id.a" (time/day day)]]))
+            (fn [] (when (not (empty? doi)) [[(_id doi-field) doi]]))
+            (fn [] (when (not (empty? subdomain)) [[(_id subdomain-field) subdomain]]))
+            (fn [] (when (not (empty? domain)) [[(_id domain-field) domain]]))
+            (fn [] (when (not (empty? tld)) [[(_id tld-field) tld]]))]
+            
+            ; Build query map.
+            match-args (apply concat (remove nil? ((apply juxt match-arg-fns))))
+            ; match (reduce (fn [acc [k v]] (assoc acc k v)) {} match-args)
+            match (into {} match-args)
+            
+            count-response (mc/aggregate "entries-aggregated-day" [
+              {"$match" match}
+              {"$group" {"_id" "null" "count" {"$sum" "$count"}}}                                                     
+            ])
+            
+            find-response (mc/count "entries-aggregated-day" match)
+          ]      
+          
+          (or (:count (first count-response)) 0)))
+        
+          ; Count for every day in the range.
+          days-result (map count-for-day days)
+          
+          ; Total count.
+          days-count (reduce + days-result)
+        ]
+      {:days days-result :count days-count}))
+
+
+
+; Updating the table
 
 (defn update-aggregates-group-partitioned
   "Update aggregates from the intermediate collection. Uses the aggregate/group functionality."
@@ -117,7 +167,7 @@
   ; TODO not used because it lacks the flexibility.
 
   (info "Indexing intermediate collection")  
-  (mc/ensure-index "entries-intermediate" (array-map date-field 1 doi 1))
+  (mc/ensure-index "entries-intermediate" (array-map date-field 1 doi-field 1))
 
   (info (str "Performing aggregation with " (* (count (date-interval start end)) (count dois)) " steps"))
     
@@ -132,14 +182,14 @@
       {"$match" {
         date-field {"$gt" (start-of-day day) 
              "$lt" (end-of-day day)}  
-        doi the-doi
+        doi-field the-doi
        }}
       ; Carry through the actual date and the date in numbers for ease of querying later.
       {"$project" {
-                   doi 1
-                   subdomain 1
-                   domain 1
-                   tld 1
+                   doi-field 1
+                   subdomain-field 1
+                   domain-field 1
+                   tld-field 1
                    date-field 1
                    year-field {"$year" ($ date-field)}
                    month-field {"$month" ($ date-field)}
@@ -147,10 +197,10 @@
                    }}
       {"$group" {
             "_id" {
-                doi ($ doi)
-                subdomain ($ subdomain)
-                domain ($ domain)
-                tld ($ tld)
+                doi-field ($ doi-field)
+                subdomain-field ($ subdomain-field)
+                domain-field ($ domain-field)
+                tld-field ($ tld-field)
                 year-field ($ year-field)
                 month-field ($ month-field)
                 day-field ($ day-field)
@@ -171,7 +221,7 @@
   [start end dois]
   
   (info "Indexing intermediate collection")  
-  (mc/ensure-index "entries-intermediate" (array-map date-field 1 doi 1))
+  (mc/ensure-index "entries-intermediate" (array-map date-field 1 doi-field 1))
   
   (info (str "Performing aggregation with " (* (count (date-interval start end)) (count dois)) " steps"))
   

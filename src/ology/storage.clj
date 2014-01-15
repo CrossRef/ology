@@ -216,15 +216,7 @@
     ; We can't upsert batches, so iterate over the small range.
     
     (doseq [result results]
-      
-      (mc/update "entries-aggregated-day" 
-       ; Upsert query only on ID
-       {:_id (:_id result)}
-       ; But upsert only non-id fields. This results in the whole of the result being inserted.
-       {"$set" {
-          count-field (count-field result)
-          date-field (date-field result)}}
-       :upsert true)))))
+      (mc/save "entries-aggregated-day" result)))))
 
 
 (defn update-aggregates-count-partitioned

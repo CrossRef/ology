@@ -19,7 +19,7 @@
 )
 
 ; Ignore server errors, continue inserting on error i.e. drop duplicates.
-(mg/set-default-write-concern! WriteConcern/ACKNOWLEDGED)
+; (mg/set-default-write-concern! WriteConcern/ACKNOWLEDGED)
 
 ; Short field names for storing in Mongo.
 (def ip-address :i)
@@ -35,6 +35,7 @@
 (def year-field :y)
 (def month-field :m)
 (def day-field :a)
+(def count-field :count)
 
 (defn $ [a] (str "$" (name a)))
 
@@ -140,13 +141,13 @@
             
             count-response (mc/aggregate "entries-aggregated-day" [
               {"$match" match}
-              {"$group" {"_id" "null" "count" {"$sum" "$count"}}}                                                     
+              {"$group" {"_id" "null" count-field {"$sum" ($ count-field)}}}                                                     
             ])
             
             find-response (mc/count "entries-aggregated-day" match)
           ]      
           
-          (or (:count (first count-response)) 0)))
+          (or (count-field (first count-response)) 0)))
         
           ; Count for every day in the range.
           days-result (map count-for-day days)
@@ -154,7 +155,7 @@
           ; Total count.
           days-count (reduce + days-result)
         ]
-      {:days days-result :count days-count}))
+      {:days days-result count-field days-count}))
 
 
 
@@ -176,7 +177,7 @@
   ; TODO if this approach is fast enough for real data (splitting on 2 dimensions) then the group can be simplified.
   (doseq [day (date-interval start end)
           the-doi dois]
-    ; (prn "Update aggregate for" day (start-of-day day) "and" doi)
+    
     (let [results
       (mc/aggregate "entries-intermediate" [
       {"$match" {
@@ -205,7 +206,7 @@
                 month-field ($ month-field)
                 day-field ($ day-field)
             }
-            "count" {"$sum" 1}
+            count-field {"$sum" 1}
             ; The group will collect dates on a given day. This will take an arbitrary date from that day.
             ; The precise value doesn't really matter.
             date-field {"$first" ($ date-field)}
@@ -213,12 +214,17 @@
     
     ; Depending on the initial filtering, there should be only one result, or a small number
     ; We can't upsert batches, so iterate over the small range.
+    
     (doseq [result results]
+      
       (mc/update "entries-aggregated-day" 
        ; Upsert query only on ID
        {:_id (:_id result)}
-       ; But update whole thing including count.
-       result :upsert true)))))
+       ; But upsert only non-id fields. This results in the whole of the result being inserted.
+       {"$set" {
+          count-field (count-field result)
+          date-field (date-field result)}}
+       :upsert true)))))
 
 
 (defn update-aggregates-count-partitioned

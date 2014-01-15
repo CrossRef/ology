@@ -1,0 +1,154 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <title>CrossRef DOI referral statistics</title>
+
+    <!-- Bootstrap core CSS -->
+    <link href="bootstrap/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Custom styles for this template -->
+    <link href="offcanvas.css" rel="stylesheet">
+
+    <link rel="stylesheet" href="http://code.jquery.com/ui/1.10.3/themes/smoothness/jquery-ui.css">
+
+
+  </head>
+
+  <body>
+    <div class="navbar navbar-fixed-top navbar-inverse" role="navigation">
+      <div class="container">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+            <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+          <a class="navbar-brand" href="#">CrossRef DOI referral statistics</a>
+        </div>
+        <div class="collapse navbar-collapse">
+          <ul class="nav navbar-nav">
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="container">
+
+      <div class="row row-offcanvas row-offcanvas-right">
+       <p>Start and end date are required. You must supply a DOI or a domain, or both. Subdomain and TLD are optional, so you can enter <code>en.wikipedia.org</code>, <code>wikipedia.org</code> or just <code>wikipedia</code>. Note that these results are only DOI resolutions where the referral was given. It does not include all DOI resolutions and due to browser privacy settings may not be complete.</p>
+
+        <form role="form" name="query" method="get" action="/days">
+          <div class="form-group">
+            <label for="start-date">Start and end date</label>
+            <div class="row">
+              <div class="col-xs-2">
+                <input name="start-date" type="text" id="start-date" class="form-control">
+              </div>
+              <div class="col-xs-2">
+                <input name="end-date" type="text" id="end-date" class="form-control">
+              </div>
+
+            </div>
+
+          </div>
+          <div class="form-group">
+            <label for="doi">DOI</label>
+            <input type="text" class="form-control" id="doi" name="doi" placeholder="10.5555/12345678">
+          </div>
+          <div class="form-group">
+            <label for="domain">Domain</label>
+            <input type="text" class="form-control" id="domain" name="domain" placeholder="en.wikipedia.org">
+          </div>
+
+          <button type="submit" id="submit" class="btn btn-default">Query</button>
+        </form>
+    </div>
+    <br />
+    <div class="row">
+        
+    <div id="info" class="alert alert-info"><p>From <strong id="start-date-value"></strong> to <strong id="end-date-value"></strong>. Total count: <strong id="count-value"></strong></p></div>
+    
+    <div id="error" class="alert alert-danger"><p class="text"></p></div>    
+    
+    <canvas id="chart" width="1170" height="400"></canvas>
+    
+    </div>
+
+
+      <hr>
+
+      <footer>
+        <p>&copy; CrossRef 2014</p>
+      </footer>
+
+    </div><!--/.container-->
+
+
+
+    <!-- Bootstrap core JavaScript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+    <script src="https://code.jquery.com/jquery-1.10.2.min.js"></script>
+    <script src="bootstrap/js/bootstrap.min.js"></script>
+    
+    <script src="http://code.jquery.com/jquery-1.9.1.js"></script>
+    <script src="http://code.jquery.com/ui/1.10.3/jquery-ui.js"></script>
+    <script src="lib/Chart.js"></script>
+    <script>
+      $(function() {
+        $("#start-date").datepicker();
+        $("#end-date").datepicker();
+        $("#start-date").datepicker("option", "dateFormat", "yy-mm-dd");
+        $("#end-date").datepicker("option", "dateFormat", "yy-mm-dd");
+
+        $("#info").hide(0);
+        $("#error").hide(0);
+
+        var ctx = $("#chart").get(0).getContext("2d");
+        
+        var chart = new Chart(ctx);
+
+        $('form[name=query]').submit(function(){
+            $.get($(this).attr('action'), $(this).serialize(), function(jsonResult) {
+                $("#info").show(0);
+                $("#error").hide(0);
+
+                $('#start-date-value').text(jsonResult.input['start-date']);
+                $('#end-date-value').text(jsonResult.input['end-date']);
+                $('#count-value').text(jsonResult.query['count']);
+
+                var data = {
+                    labels : jsonResult.result.days,
+                    datasets : [
+                        {
+                            fillColor : "rgba(220,220,220,0.5)",
+                            strokeColor : "rgba(220,220,220,1)",
+                            pointColor : "rgba(220,220,220,1)",
+                            pointStrokeColor : "#fff",
+                            data : jsonResult.result.days
+                        }
+                    ]
+                };
+
+                chart.Line(data);  
+                
+            }, 'json').error(function(resp) {
+                $("#error>p").text(resp.responseText);
+                $("#error").show()
+                $("#info").hide(0);
+            });
+            return false;
+        });
+      });
+  </script>
+
+  </body>
+</html>

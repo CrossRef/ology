@@ -4,7 +4,6 @@
   (:require [ology.storage :as storage])
   (:require [compojure.handler :as handler]
             [compojure.route :as route])
-  
   (:use ring.middleware.json)
   (:use ring.util.response)
   (:use [clj-time.format])
@@ -29,18 +28,19 @@
 (defn validate-query 
   "Validate query. Return empty vector on success or list of error strings" 
   [query]
-  (let [got-domain (and (not (empty? (:domain query))) (not (empty? (:tld query))))
+  
+  (let [got-domain (not (empty? (:domain query)))
         got-start (not (nil? (:start-date query)))
         got-end (not (nil? (:end-date query)))
-        got-doi (not (nil? (:doi query)))
+        got-doi (not (empty? (:doi query)))
         
         validation-rules [
           (fn domain-or-doi [] (when (and
-            (nil? (:domain query))
-            (nil? (:doi query))) "DOI or domain or both must be supplied."))
+            (not got-domain)
+            (not got-doi)) "DOI or domain or both must be supplied."))
           (fn start-end [] (when (or
-            (nil? (:start-date query))
-            (nil? (:end-date query))) "Both start and end date must be supplied."))]
+            (not got-start)
+            (not got-end)) "Both start and end date must be supplied."))]
         result (remove nil? ((apply juxt validation-rules)))]
     result))
 
@@ -56,27 +56,23 @@
           doi (get query "doi")
           query (construct-query start-date end-date domain doi)
           validation (validate-query query)]
-      
       (if (not (empty? validation))
-        (response (clojure.string/join "\n" validation))
-        (response  {
-        :input {
-          :start-date (unparse date-formatter start-date)
-          :end-date (unparse date-formatter end-date)
-          :doi doi
-          :domain domain}
-        :query query
-        :result (storage/query-days query)
-     })))
-    
-    ; TODO proper error code.
-    (catch IllegalArgumentException ex (response (str (.toString ex))))))
+        {:status 400 :headers {"Content-Type" "application/json"} :body (clojure.string/join "\n" validation)}
+        {:status 200 :headers {"Content-Type" "application/json"} :body {
+          :input {
+            :start-date (unparse date-formatter start-date)
+            :end-date (unparse date-formatter end-date)
+            :doi doi
+            :domain domain
+            }
+          :query query
+          :result (storage/query-days query)}}))
+    (catch IllegalArgumentException ex {:status 400 :headers {"Content-Type" "application/json"} :body (str "Date: " (.getMessage ex))})))
 
 (defroutes app-routes
   (GET "/heartbeat" [] heartbeat)
   (GET "/days" {params :params} (wrap-json-response days))
-  
-  )
+  (route/resources "/")  )
 
 (def app
   (handler/site app-routes))

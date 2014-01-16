@@ -70,6 +70,7 @@
     (catch IllegalArgumentException ex {:status 400 :headers {"Content-Type" "application/json"} :body (str "Date: " (.getMessage ex))})))
 
 (defroutes app-routes
+  (GET "/" [] (redirect "/index.html"))
   (GET "/heartbeat" [] heartbeat)
   (GET "/days" {params :params} (wrap-json-response days))
   (route/resources "/")  )

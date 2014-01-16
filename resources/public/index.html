@@ -52,10 +52,10 @@
             <label for="start-date">Start and end date</label>
             <div class="row">
               <div class="col-xs-2">
-                <input name="start-date" type="text" id="start-date" value="2010-01-01" class="form-control">
+                <input name="start-date" type="text" id="start-date" class="form-control">
               </div>
               <div class="col-xs-2">
-                <input name="end-date" type="text" id="end-date" value="2014-01-01" class="form-control">
+                <input name="end-date" type="text" id="end-date" class="form-control">
               </div>
 
             </div>
@@ -67,7 +67,7 @@
           </div>
           <div class="form-group">
             <label for="domain">Domain</label>
-            <input type="text" class="form-control" id="domain" name="domain" value="no-referrer" placeholder="en.wikipedia.org">
+            <input type="text" class="form-control" id="domain" name="domain" placeholder="en.wikipedia.org">
           </div>
 
           <button type="submit" id="submit" class="btn btn-default">Query</button>
@@ -132,10 +132,10 @@
 
     <script>
       $(function() {
-        // $("#start-date").datepicker();
-        // $("#end-date").datepicker();
-        // $("#start-date").datepicker("option", "dateFormat", "yy-mm-dd");
-        // $("#end-date").datepicker("option", "dateFormat", "yy-mm-dd");
+        $("#start-date").datepicker();
+        $("#end-date").datepicker();
+        $("#start-date").datepicker("option", "dateFormat", "yy-mm-dd");
+        $("#end-date").datepicker("option", "dateFormat", "yy-mm-dd");
 
         $("#info").hide(0);
         $("#error").hide(0);
@@ -148,18 +148,25 @@
 
         $('form[name=query]').submit(function(){
             $.get($(this).attr('action'), $(this).serialize(), function(jsonResult) {
-                $("#info").show(0);
+                
                 $("#error").hide(0);
 
-                $('#start-date-value').text(jsonResult.input['start-date']);
-                $('#end-date-value').text(jsonResult.input['end-date']);
                 $('#count-value').text(jsonResult.result['count']);
 
-                if (jsonResult.result['days'].length == 0) {
+                var days = jsonResult.result['days'];
+                if (days.length == 0) {
                     $("#chart_container").hide()
+                    $("#info").hide(0);
                 } else {
+                    $("#info").show(0);
                     $("#chart_container").show()
-                    data = jsonResult.result['days'].map(function(point) { return({x: new Date(point.date).getTime()/1000, y: point.count});});
+
+                    // First and last returned.
+                    // This array will be returned in order from the API.
+                    $('#start-date-value').text(new Date(days[0].date));
+                    $('#end-date-value').text(new Date(days[days.length-1].date));
+
+                    data = days.map(function(point) { return({x: new Date(point.date).getTime()/1000, y: point.count});});
 
                     // Construct on the first request where there is data.
                     if (!graph) {
@@ -174,7 +181,7 @@
                             }]
                         });
 
-                        var x_axis = new Rickshaw.Graph.Axis.Time( { graph: graph } );
+                        var x_axis = new Rickshaw.Graph.Axis.Time({graph: graph});
 
                         var y_axis = new Rickshaw.Graph.Axis.Y( {
                                 graph: graph,

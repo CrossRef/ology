@@ -119,45 +119,52 @@
   [query]
   (let [start-date (:start-date query)
         end-date (:end-date query)
-        days (date-interval start-date end-date)
         subdomain (:subdomain query)
         domain (:domain query)
         tld (:tld query)
         doi (:doi query)
-        
-        count-for-day (fn [day]
-          (let [
-            match-arg-fns [
-            (fn [] (when (and start-date end-date) [["_id.y" (time/year day)] ["_id.m" (time/month day)] ["_id.a" (time/day day)]]))
-            (fn [] (when (not (empty? doi)) [[(_id doi-field) doi]]))
-            (fn [] (when (not (empty? subdomain)) [[(_id subdomain-field) subdomain]]))
-            (fn [] (when (not (empty? domain)) [[(_id domain-field) domain]]))
-            (fn [] (when (not (empty? tld)) [[(_id tld-field) tld]]))]
-            
-            ; Build query map.
-            match-args (apply concat (remove nil? ((apply juxt match-arg-fns))))
-            ; match (reduce (fn [acc [k v]] (assoc acc k v)) {} match-args)
-            match (into {} match-args)
-            
-            count-response (mc/aggregate "entries-aggregated-day" [
-              {"$match" match}
-              {"$group" {"_id" "null" count-field {"$sum" ($ count-field)}}}                                                     
-            ])
-            
-            find-response (mc/count "entries-aggregated-day" match)
-          ]      
-          
-          (or (count-field (first count-response)) 0)))
-        
-          ; Count for every day in the range.
-          days-result (map count-for-day days)
-          
-          ; Total count.
-          days-count (reduce + days-result)
-        ]
-      {:days days-result count-field days-count}))
 
-
+        match-arg-fns [
+          (fn [] (when (and start-date end-date) [["d" {"$gte" start-date "$lte" end-date}]]))
+          (fn [] (when (not (empty? doi)) [[(_id doi-field) doi]]))
+          (fn [] (when (not (empty? subdomain)) [[(_id subdomain-field) subdomain]]))
+          (fn [] (when (not (empty? domain)) [[(_id domain-field) domain]]))
+          (fn [] (when (not (empty? tld)) [[(_id tld-field) tld]]))]
+          
+        ; Build query map.
+        match-args (apply concat (remove nil? ((apply juxt match-arg-fns))))
+        
+        match (into {} match-args)
+          
+        response (mc/aggregate "entries-aggregated-day" [
+          {"$match" match}
+          {"$project" {
+            "_id" 0
+            count-field 1
+            year-field ($ (_id year-field))
+            month-field ($ (_id month-field))
+            day-field ($ (_id day-field))
+            date-field ($ date-field)
+            }}
+          {"$group" {
+            "_id" {
+              year-field ($ year-field)
+              month-field ($ month-field)
+              day-field ($ day-field)
+            }
+          count-field {"$sum" ($ count-field)}
+          date-field {"$first" ($ date-field)}
+          }}
+          {"$sort" {date-field 1}}                                   
+        ])
+          
+        total-count (reduce + (map #(:count %1) response))
+        the-response (map (fn [x] {
+          :count (count-field x)
+          :date (date-field x)})
+          response)]
+    
+      {:days the-response :count total-count}))      
 
 ; Updating the table
 

@@ -9,6 +9,8 @@
     (:import (org.joda.time.TimeZone))
     (:import (java.text.SimpleDateFormat))
     (:use [clojure.tools.logging :only (info error)])
+    (:require [clj-time.core :as time])
+    (:require [clj-time.format :as format])
     (:use [environ.core])
     )
 
@@ -25,12 +27,9 @@
 
 (def line-re #"^([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\")$")
 
-(def log-date-formatter (new java.text.SimpleDateFormat "EEE MMM dd HH:mm:ss zzz yyyy"))
+(def log-date-formatter (format/formatter "EEE MMM dd HH:mm:ss zzz yyyy"))
 
 (def batch-size 10000)
-
-; Keep a list of known DOIs for this run. Used for filtering in the aggregation later.
-(def known-dois (atom #{}))
 
 (defn checksum
   "Generate a checksum for the given string"
@@ -196,7 +195,6 @@
                 ; We have a DOI. Add this to the list of known DOIs.
                 ; Check at this point that the domain matches. An empty string will return true.                
                 (when (.contains referrer-url special-url-filter)
-                  (swap! known-dois conj doi)
                   [ip date doi referrer-url line])))))
 
 (defn db-insert-format
@@ -206,15 +204,17 @@
   "
   [[ip the-date doi referrer-url original] is-valid etlds]
   
-  (let [main-domain (get-main-domain (get-host referrer-url) etlds)] {
+  (let [main-domain (get-main-domain (get-host referrer-url) etlds)
+        the-date (format/parse log-date-formatter the-date)
+        ]
+    {
    storage/ip-address ip
-   storage/date-field (. log-date-formatter parse the-date)
+   storage/date-field (storage/start-of-day the-date)
    storage/doi-field doi
    storage/referrer referrer-url
    storage/subdomain-field (main-domain 0)
    storage/domain-field (main-domain 1)
    storage/tld-field (main-domain 2)
-   ; storage/hashed (checksum original)
    storage/followup-ra (= is-valid :error)
    }))
 
@@ -226,11 +226,15 @@
         count-vector (into [] counts)]
     (sort #(compare (second %2) (second %1)) count-vector)))
 
+; Earlier and later date, allowing for nils.
+(defn later-date [a b] (if (nil? a) b (if (time/after? a b) a b)))
+(defn earlier-date [a b] (if (nil? a) b (if (time/before? a b) a b)))
+
 (defn -main
   "Accept list of log file paths"
   [& input-file-paths]
   (let [etlds (get-effective-tld-structure)]
-    (storage/create-intermediate-collection)
+    
     
     (doseq [input-file-path input-file-paths]
       (info "Inserting from " input-file-path)
@@ -249,25 +253,41 @@
               ; Transform into the right format for insertion into Mongo.
               db-insert-format-lines (map (fn([[parsed-line is-valid]]
                                               (db-insert-format parsed-line is-valid etlds))) with-validation)
+              
+              ; Partition into sequences of date.    
+              date-partitions (partition-by storage/date-field db-insert-format-lines)
               ]
-          (info "Insert into intermediate collection")
-          (doseq [batch (partition batch-size batch-size nil db-insert-format-lines)]
-            (info (str "Insert Batch length " (count batch) " starting " (first batch)))
-            (storage/insert-log-entries batch)))
-        (info (str "Done inserting from " input-file-path))
-        
-        ))
-
-    (info (str "Found " (count @known-dois) " DOIs"))
-    
-    (info "Getting inserted date range")
-    (let [[start-date end-date] (storage/get-date-range)]
-      (info (str "Clearing aggregates table between " start-date " and " end-date))
-      (storage/clear-aggregates-for-date-range start-date end-date)
-
-      (info "Running aggregation")
-      (storage/update-aggregates-group-partitioned start-date end-date @known-dois)
-      
-      )
+          
+          (doseq [date-partition date-partitions]
+            (info "Process date partition.")
+            
+            ;; Build a new intermediary collection for each day batch.
+            
+            (storage/create-intermediate-collection)
+            ; Keep a list of known DOIs for this date. Used for filtering in the aggregation later.
+            (let [known-dois (atom #{})
+                  start-date (atom nil)
+                  end-date (atom nil)
+                  
+                  ;; Run the date-partition through information-gathering for aggregation.
+                  counted-partition (map (fn [x]
+                    (swap! known-dois conj (storage/doi-field x))
+                    (swap! start-date earlier-date (storage/date-field x))
+                    (swap! end-date later-date (storage/date-field x))
+                    x) date-partition)]
+                  
+                  ;; Insert these into intermediary collection in a batch.
+                  (doseq [batch (partition batch-size batch-size nil counted-partition)]
+                    (info (str "Insert Batch length " (count batch) " starting " (first batch)))
+                    (storage/insert-log-entries batch))
+                  
+                  (info "Finished inserting batches for partition.")
+                  
+                  (info "Known DOIs count for day: " (count @known-dois))
+                  (info "Start date" @start-date)
+                  (info "End date" @end-date)
+                  
+                  (info "Running aggregation")
+                  (storage/update-aggregates-group-partitioned @start-date @end-date @known-dois))))))
           
     (info "Done")))

@@ -188,8 +188,8 @@
     (let [results
       (mc/aggregate "entries-intermediate" [
       {"$match" {
-        date-field {"$gt" (start-of-day day) 
-             "$lt" (end-of-day day)}  
+        date-field {"$gte" (start-of-day day) 
+             "$lte" (end-of-day day)}  
         doi-field the-doi
        }}
       ; Carry through the actual date and the date in numbers for ease of querying later.
@@ -223,7 +223,10 @@
     ; We can't upsert batches, so iterate over the small range.
     
     (doseq [result results]
-      (mc/save "entries-aggregated-day" result)))))
+      (mc/update "entries-aggregated-day"
+        {:_id (:_id result)}
+        {"$inc" {count-field 1} "$set" {date-field (date-field result)}}
+        :upsert true)))))
 
 
 (defn update-aggregates-count-partitioned
@@ -256,10 +259,8 @@
                 "dt" the-day
                 }
               ]
-      (mc/insert "entries-aggregated-day" result)
-      )))
+      (mc/insert "entries-aggregated-day" result))))
       
-
 (defn update-aggregates-group-naive
   "Update aggregates from the intermediate collection. Uses the aggregate/group functionality."
   []

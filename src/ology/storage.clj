@@ -153,18 +153,18 @@
               day-field ($ day-field)
             }
           count-field {"$sum" ($ count-field)}
-          date-field {"$first" ($ date-field)}
-          }}
-          {"$sort" {date-field 1}}                                   
-        ])
+          }}])
           
         total-count (reduce + (map #(:count %1) response))
+        
+        ; Construct a date object for each day group.
         the-response (map (fn [x] {
           :count (count-field x)
-          :date (date-field x)})
-          response)]
+          :date (let [the-date (:_id x)] (time/date-time (year-field the-date) (month-field the-date) (day-field the-date)))})
+          response)
+        sorted-response (sort-by :date the-response)]
     
-      {:days the-response :count total-count}))      
+      {:days sorted-response :count total-count}))      
 
 ; Updating the table
 

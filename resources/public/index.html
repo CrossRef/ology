@@ -12,6 +12,8 @@
 
     <!-- Bootstrap core CSS -->
     <link href="bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link href="lib/rickshaw.min.css" rel="stylesheet">
+
 
     <!-- Custom styles for this template -->
     <link href="offcanvas.css" rel="stylesheet">
@@ -50,10 +52,10 @@
             <label for="start-date">Start and end date</label>
             <div class="row">
               <div class="col-xs-2">
-                <input name="start-date" type="text" id="start-date" class="form-control">
+                <input name="start-date" type="text" id="start-date" value="2010-01-01" class="form-control">
               </div>
               <div class="col-xs-2">
-                <input name="end-date" type="text" id="end-date" class="form-control">
+                <input name="end-date" type="text" id="end-date" value="2014-01-01" class="form-control">
               </div>
 
             </div>
@@ -65,7 +67,7 @@
           </div>
           <div class="form-group">
             <label for="domain">Domain</label>
-            <input type="text" class="form-control" id="domain" name="domain" placeholder="en.wikipedia.org">
+            <input type="text" class="form-control" id="domain" name="domain" value="no-referrer" placeholder="en.wikipedia.org">
           </div>
 
           <button type="submit" id="submit" class="btn btn-default">Query</button>
@@ -79,8 +81,29 @@
     <div id="error" class="alert alert-danger"><p class="text"></p></div>    
     
     <!-- <canvas id="chart" width="1170" height="400"></canvas> -->
-    <div id="chart" width="1170" height="400"></div>
     
+    <style>
+        #chart_container {
+                position: relative;
+                font-family: Arial, Helvetica, sans-serif;
+        }
+        #chart {
+                position: relative;
+                left: 40px;
+        }
+        #y_axis {
+                position: absolute;
+                top: 0;
+                bottom: 0;
+                width: 40px;
+        }
+    </style>
+
+    <div id="chart_container" width=1170>
+            <div id="y_axis"></div>
+            <div id="chart" width=1170></div>
+    </div>
+
     </div>
 
 
@@ -104,21 +127,24 @@
     <script src="http://code.jquery.com/ui/1.10.3/jquery-ui.js"></script>
     <!--<script src="lib/Chart.js"></script>-->
     <script src="lib/d3.v3.js"></script>
+    <script src="lib/d3.layout.min.js"></script>
     <script src="lib/rickshaw.min.js"></script>
 
     <script>
       $(function() {
-        $("#start-date").datepicker();
-        $("#end-date").datepicker();
-        $("#start-date").datepicker("option", "dateFormat", "yy-mm-dd");
-        $("#end-date").datepicker("option", "dateFormat", "yy-mm-dd");
+        // $("#start-date").datepicker();
+        // $("#end-date").datepicker();
+        // $("#start-date").datepicker("option", "dateFormat", "yy-mm-dd");
+        // $("#end-date").datepicker("option", "dateFormat", "yy-mm-dd");
 
         $("#info").hide(0);
         $("#error").hide(0);
 
-        // var ctx = $("#chart").get(0).getContext("2d");
-        
-        // var chart = new Chart(ctx);
+        var data = [];
+
+        var graph;
+
+        // Don't render first time as there's no data.
 
         $('form[name=query]').submit(function(){
             $.get($(this).attr('action'), $(this).serialize(), function(jsonResult) {
@@ -129,33 +155,38 @@
                 $('#end-date-value').text(jsonResult.input['end-date']);
                 $('#count-value').text(jsonResult.result['count']);
 
-                // var data = {
-                //     labels : jsonResult.result.days,
-                //     datasets : [
-                //         {
-                //             fillColor : "rgba(220,220,220,0.5)",
-                //             strokeColor : "rgba(220,220,220,1)",
-                //             pointColor : "rgba(220,220,220,1)",
-                //             pointStrokeColor : "#fff",
-                //             data : jsonResult.result.days
-                //         }
-                //     ]
-                // };
+                if (jsonResult.result['days'].length == 0) {
+                    $("#chart_container").hide()
+                } else {
+                    $("#chart_container").show()
+                    data = jsonResult.result['days'].map(function(point) { return({x: new Date(point.date).getTime()/1000, y: point.count});});
 
-                // chart.Line(data);  
+                    // Construct on the first request where there is data.
+                    if (!graph) {
+                        graph = new Rickshaw.Graph( {
+                            element: document.querySelector("#chart"), 
+                            width: 1170, 
+                            height: 400,
+                            renderer: 'bar',
+                            series: [{
+                                color: 'steelblue',
+                                data: data
+                            }]
+                        });
 
-                if (jsonResult.result['days'].length > 0) {
-                    var graph = new Rickshaw.Graph( {
-                        element: document.querySelector("#chart"), 
-                        width: 1170, 
-                        height: 400, 
-                        series: [{
-                            color: 'steelblue',
-                            data: jsonResult.result['days'].map(function(point) { return({x: new Date(point.date).getTime(), y: point.count});})
-                        }]
-                    });
+                        var x_axis = new Rickshaw.Graph.Axis.Time( { graph: graph } );
 
-                    graph.render();
+                        var y_axis = new Rickshaw.Graph.Axis.Y( {
+                                graph: graph,
+                                orientation: 'left',
+                                tickFormat: Rickshaw.Fixtures.Number.formatKMBT,
+                                element: document.getElementById('y_axis'),
+                        } );
+                        graph.render();
+                    }
+
+                    // Update every time.
+                    graph.update();
                 }
                 
             }, 'json').error(function(resp) {

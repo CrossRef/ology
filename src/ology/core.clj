@@ -161,6 +161,10 @@
 (defn -main
   "Accept list of log file paths"
   [& input-file-paths]
+  (doseq [input-file-path input-file-paths]
+    (with-open [log-file-reader (clojure.java.io/reader input-file-path)]
+      (info "Verify that input file " input-file-path " exists.")))
+  
   (let [etlds (get-effective-tld-structure)]    
     (doseq [input-file-path input-file-paths]
       (info "Inserting from " input-file-path)

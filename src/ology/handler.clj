@@ -46,6 +46,7 @@
   [params]
   (try
     (let [query (params :query-params)
+          group-method (get query "group-method")
           start-date-input (get query "start-date")
           end-date-input (get query "end-date")
           start-date (when start-date-input (parse date-formatter start-date-input))
@@ -64,7 +65,7 @@
             :domain domain
             }
           :query query
-          :result (storage/query-days query)}}))
+          :result (storage/query-days query group-method)}}))
     (catch IllegalArgumentException ex {:status 400 :headers {"Content-Type" "application/json"} :body (str "Date: " (.getMessage ex))})))
 
 (defroutes app-routes

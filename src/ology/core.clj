@@ -3,67 +3,21 @@
     (:require [clj-http.client :as client])
     (:require [clj-time.format :refer [parse formatter]])
     (:require [ology.storage :as storage])
-    (:import (java.security MessageDigest))
-    (:import (java.net URLEncoder))
     (:import (org.joda.time.DateTimeZone))
     (:import (org.joda.time.TimeZone))
+    (:import (java.net URL))
     (:import (java.text.SimpleDateFormat))
     (:use [clojure.tools.logging :only (info error)])
     (:require [clj-time.core :as time])
     (:require [clj-time.format :as format])
-    (:use [environ.core])
+    (:use [environ.core])    
     )
-
-
-; The URI filter for experimental tweaking.
-; If supplied, filter only to this domain.
-(def special-url-filter 
-  (or (env :url-filter) "")
-  )
-
-(info "Special URL filter: " special-url-filter)
-
-(import java.net.URL)
 
 (def line-re #"^([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\")$")
 
 (def log-date-formatter (format/formatter "EEE MMM dd HH:mm:ss zzz yyyy"))
 
-(def batch-size 10000)
-
-(defn checksum
-  "Generate a checksum for the given string"
-  ; TODO removing the duplicate checking renders this unused. Remove.
-  [token]
-  (let [hash-bytes
-         (doto (java.security.MessageDigest/getInstance "SHA1")
-               (.reset)
-               (.update (.getBytes token)))]
-       (.toString
-         (new java.math.BigInteger 1 (.digest hash-bytes)) ; Positive and the size of the number
-         20)))
-
-;; External APIs.
-; This is designed to work against the ajutor DOI RA service which returns extra headers for speed.
-(def doi-registration-authority-service-url "http://habanero:8000/ra/")
-
-(defn validate-doi
-  "Check if a DOI is valid and registered with CrossRef. Return true or false or :error if the upstream server isn't availble."
-  [doi]
-  (try 
-  (let [response (client/get (str doi-registration-authority-service-url (URLEncoder/encode doi)) {:retry-handler (fn [ex try-count http-context] (< try-count 4))})]
-    (= (get (:headers response) "doi-ra") "CrossRef"))
-  (catch Exception _ :error)))
-
-(defn validate-doi-not
-  "Pretend to validate the DOI but don't (it's too slow)."
-  [doi]
-  :error)
-
-
-
 ;; Helper functions.
-
 (defn domain-parts
   "Split a domain into its parts. If the domain is malformed, an empty vector."
   [domain]
@@ -71,14 +25,11 @@
     (clojure.string/split domain #"\.")
   (catch Exception _ [])))
 
-
 ;; Reading the eTLD file.
-
 (defn etld-entry?
   "Is this a valid line in the eTLD file?"
   [line]
   (or (empty? line) (.startsWith line "//")))
-
 
 (defn get-effective-tld-structure 
   "Load the set of effective TLDs into a trie."
@@ -89,9 +40,9 @@
           tree (reduce #(assoc-in %1 (reverse %2) {}) {} components)]
       (do tree))))
 
+(def etlds (get-effective-tld-structure))
 
 ;; Extracting domain info.
-
 (defn get-host 
   "Extract the host from a URL string. If the scheme is missing, try adding http."
    [url]
@@ -104,7 +55,6 @@
        ; (println url)
        (.getHost (new URL (str "http://" url))))
     (catch Exception _ nil)))))
-
 
 (defn get-main-domain
   "Extract the main (effective top-level domain, 'main domain' and subdomains) from a domain name. 'www.xxx.test.com' -> ['www.xxx' 'test' 'com'] . Return reversed vector of components."
@@ -141,7 +91,6 @@
         [(apply str (interpose "." subdomains)) main-domain (apply str (interpose "." etld-parts))]))
 
 ;; Hoofing data.
-
 
 (defn append-in
   "For a sequence of [[x 1] [x 2] [y 3] [y 3]] return a map of {x [1 2] y [3 3]}"
@@ -183,41 +132,20 @@
 )
 
 (defn parse-line 
-  "Parse a line from the log, return vector of [ip, date, doi, referrer URL, original]"
+  "Parse a line from the log, return vector of [date, doi, domain-triple]"
   [line]
     (let [match (re-find (re-matcher line-re line))]
         (when (seq match)
+            ; match is [ip, ?, date, ?, ?, ?, doi, ?, referrer]
             (let [ip (match 1)
-                  date (strip-quotes (match 3))
+                  date-str (strip-quotes (match 3))
                   doi (match 7)
-                  referrer-url (convert-special-uri  (strip-quotes (match 9)))]
+                  referrer-url (convert-special-uri  (strip-quotes (match 9)))
+                  the-date (.withTimeAtStartOfDay (format/parse log-date-formatter date-str))
+                  domain-triple (get-main-domain (get-host referrer-url) etlds)
+                  ]
                 
-                ; We have a DOI. Add this to the list of known DOIs.
-                ; Check at this point that the domain matches. An empty string will return true.                
-                (when (.contains referrer-url special-url-filter)
-                  [ip date doi referrer-url line])))))
-
-(defn db-insert-format
-  "Take a vector of [ip date doi referrer-url ] and return a format for insertion into the mongo db.
-  Mongo doesn't allow indexing on more than 1k, and some of the refferer logs are longer than that. So we hash and index on that.
-  If there was an error deciding whether or not the DOI was valid, store that for later.
-  "
-  [[ip the-date doi referrer-url original] is-valid etlds]
-  
-  (let [main-domain (get-main-domain (get-host referrer-url) etlds)
-        the-date (format/parse log-date-formatter the-date)
-        ]
-    {
-   storage/ip-address ip
-   storage/date-field (storage/start-of-day the-date)
-   storage/doi-field doi
-   storage/referrer referrer-url
-   storage/subdomain-field (main-domain 0)
-   storage/domain-field (main-domain 1)
-   storage/tld-field (main-domain 2)
-   storage/followup-ra (= is-valid :error)
-   }))
-
+                  [the-date doi domain-triple]))))
 
 (defn count-per-key
   "Map a map of [key vectors] to [key count]"
@@ -233,9 +161,7 @@
 (defn -main
   "Accept list of log file paths"
   [& input-file-paths]
-  (let [etlds (get-effective-tld-structure)]
-    
-    
+  (let [etlds (get-effective-tld-structure)]    
     (doseq [input-file-path input-file-paths]
       (info "Inserting from " input-file-path)
       (with-open [log-file-reader (clojure.java.io/reader input-file-path)]
@@ -243,51 +169,20 @@
 
               ; Filter out lines that don't parse.
               parsed-lines (remove nil? (map parse-line log-file-seq))
-              
-              ; Zip with CrossRef DOI validation check, return tuples of [parsed, valid]
-              with-validation (map (fn [line] [line (validate-doi-not (get line 2))]) parsed-lines)
-              
-              ; Remove those that are known not to be valid. Let through errors.
-              crossref-lines (filter #(not= (get % 1) false) with-validation)
-              
-              ; Transform into the right format for insertion into Mongo.
-              db-insert-format-lines (map (fn([[parsed-line is-valid]]
-                                              (db-insert-format parsed-line is-valid etlds))) with-validation)
-              
-              ; Partition into sequences of date.    
-              date-partitions (partition-by storage/date-field db-insert-format-lines)
+
+              ; Partition into sequences of date.   
+              ; The first element of the parsed result is the date. The other two are the thing we want to keep. 
+              date-partitions (partition-by first parsed-lines)
               ]
           
           (doseq [date-partition date-partitions]
-            (info "Process date partition.")
+            (info "Process date partition. ")
             
-            ;; Build a new intermediary collection for each day batch.
-            
-            (storage/create-intermediate-collection)
-            ; Keep a list of known DOIs for this date. Used for filtering in the aggregation later.
-            (let [known-dois (atom #{})
-                  start-date (atom nil)
-                  end-date (atom nil)
-                  
-                  ;; Run the date-partition through information-gathering for aggregation.
-                  counted-partition (map (fn [x]
-                    (swap! known-dois conj (storage/doi-field x))
-                    (swap! start-date earlier-date (storage/date-field x))
-                    (swap! end-date later-date (storage/date-field x))
-                    x) date-partition)]
-                  
-                  ;; Insert these into intermediary collection in a batch.
-                  (doseq [batch (partition batch-size batch-size nil counted-partition)]
-                    (info (str "Insert Batch length " (count batch) " starting " (first batch)))
-                    (storage/insert-log-entries batch))
-                  
-                  (info "Finished inserting batches for partition.")
-                  
-                  (info "Known DOIs count for day: " (count @known-dois))
-                  (info "Start date" @start-date)
-                  (info "End date" @end-date)
-                  
-                  (info "Running aggregation")
-                  (storage/update-aggregates-group-partitioned @start-date @end-date @known-dois))))))
+            (let [; Date of the first line of this partition of entries which all have the same date.
+                  the-date (first (first date-partition))
+                  freqs (frequencies (map rest date-partition))
+              ]
+              (info "Calculated frequencies for partition. " the-date)
+              (storage/insert-freqs freqs the-date))))))))
           
-    (info "Done")))
+    

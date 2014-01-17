@@ -6,9 +6,7 @@ A tool for getting info out of CrossRef resolution logs. Stores aggregates but t
 
 ### Insert log files
 
-To insert log files, run on the command line with the list of log files. The log files can cover any time period, but for that period (i.e. the interval of the earliest and latest date in the supplied log files), all log files that continuously represent that time period should be supplied. Upon insertion, the portion of the aggregate table for that date range will be cleared and re-built. This ensures that the numbers are correct if you enter the same month twice.
-
-Suggested use is to insert all logs for a given month per batch.
+To insert log files, run on the command line with the list of log files. Within a log file, the entries must be in date order. The aggregation allows for the logs to be intered in any order, but you must ensure you don't ever give it the same log file twice, or the numbers will come out wrong.
 
 To insert a log file into the database
 
@@ -18,12 +16,6 @@ or
 
     java -jar /path/to/jar.jar «path to log file»*
 
-If the URL_FILTER environment variable is set, then all referrer URLs will be filtered for this string.
-
 ### Run server for querying
 
     lein ring server-headless
-
-## TODO
-
-Are there boundary issues caused by timezones?

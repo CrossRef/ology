@@ -1,6 +1,6 @@
 (ns ology.handler
   (:use compojure.core)
-  (:use ology.core)
+  (:require [ology.core :as core])
   (:require [ology.storage :as storage])
   (:require [compojure.handler :as handler]
             [compojure.route :as route])
@@ -14,10 +14,8 @@
 (defn heartbeat [request]
   "heartbeat")
 
-(def etlds (get-effective-tld-structure))
-
 (defn construct-query [start-date end-date domain doi]
-  (let [[subdomain, domain, tld] (get-main-domain (get-host domain) etlds)]
+  (let [[subdomain, domain, tld] (core/get-main-domain (core/get-host domain) core/etlds)]
     {:subdomain subdomain
      :domain domain
      :tld tld

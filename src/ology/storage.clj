@@ -234,9 +234,5 @@
         }}
         {"$inc" {count-field the-count}
          "$set" {date-field the-date}}
-        :upsert true)
-      
-      )
-   
-   ))
+        :upsert true))))
 

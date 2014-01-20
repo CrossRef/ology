@@ -13,14 +13,14 @@
     (:use [environ.core])    
     )
 
-(def line-re #"^([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\")$")
+(def ^String line-re #"^([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\")$")
 
 (def log-date-formatter (format/formatter (time/default-time-zone) "EEE MMM dd HH:mm:ss zzz yyyy" "EEE MMM dd HH:mm:ss ZZZ yyyy"))
 
 ;; Helper functions.
 (defn domain-parts
   "Split a domain into its parts. If the domain is malformed, an empty vector."
-  [domain]
+  [^String domain]
   (try
     (clojure.string/split domain #"\.")
   (catch Exception _ [])))
@@ -28,7 +28,7 @@
 ;; Reading the eTLD file.
 (defn etld-entry?
   "Is this a valid line in the eTLD file?"
-  [line]
+  [^String line]
   (or (empty? line) (.startsWith line "//")))
 
 (defn get-effective-tld-structure 
@@ -45,7 +45,7 @@
 ;; Extracting domain info.
 (defn get-host 
   "Extract the host from a URL string. If the scheme is missing, try adding http."
-   [url]
+   [^String url]
    (try 
      (when (> (count url) 3)
        ; (println url)
@@ -107,13 +107,13 @@
 
 (defn strip-quotes 
   "Strip quotes from the start and end of the line if they exist."
-  [inp]
+  [^String inp]
   (if (= (first inp) (last inp) \")
     (subs inp 1 (dec (count inp))) inp))
 
 (defn convert-special-uri
   "For special uris, convert them into an HTTP host proxy form."
-  [uri]
+  [^String uri]
   (cond 
     
     ; Prefixes.
@@ -133,15 +133,17 @@
 
 (defn parse-line 
   "Parse a line from the log, return vector of [date, doi, domain-triple]"
-  [line]
+  [^String line]
     (let [match (re-find (re-matcher line-re line))]
         (when (seq match)
             ; match is [ip, ?, date, ?, ?, ?, doi, ?, referrer]
-            (let [ip (match 1)
-                  date-str (strip-quotes (match 3))
-                  doi (match 7)
-                  referrer-url (convert-special-uri  (strip-quotes (match 9)))
-                  the-date (.withTimeAtStartOfDay (format/parse log-date-formatter date-str))
+            (let [^String ip (match 1)
+                  ^String date-str (strip-quotes (match 3))
+                  ^String doi (match 7)
+                  ^String referrer-url (convert-special-uri  (strip-quotes (match 9)))
+                  ; Half-way type hint makes a lot of difference!
+                  ^org.joda.time.DateTime date-prelim (format/parse log-date-formatter date-str)
+                  ^org.joda.time.DateTime the-date (.withTimeAtStartOfDay date-prelim)
                   domain-triple (get-main-domain (get-host referrer-url) etlds)
                   ]
                 
@@ -155,8 +157,8 @@
     (sort #(compare (second %2) (second %1)) count-vector)))
 
 ; Earlier and later date, allowing for nils.
-(defn later-date [a b] (if (nil? a) b (if (time/after? a b) a b)))
-(defn earlier-date [a b] (if (nil? a) b (if (time/before? a b) a b)))
+(defn later-date [^org.joda.time.DateTime a ^org.joda.time.DateTime b] (if (nil? a) b (if (time/after? a b) a b)))
+(defn earlier-date [^org.joda.time.DateTime a ^org.joda.time.DateTime b] (if (nil? a) b (if (time/before? a b) a b)))
 
 (defn -main
   "Accept list of log file paths"
@@ -189,7 +191,7 @@
             (info "Start processing date partition. ")
             
             (let [; Date of the first line of this partition of entries which all have the same date.
-                  the-date (first (first date-partition))
+                  ^org.joda.time.DateTime the-date (first (first date-partition))
                   freqs (frequencies (map rest date-partition))
               ]
               (info "Calculated frequencies for partition. " the-date)

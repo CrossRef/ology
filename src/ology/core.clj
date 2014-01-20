@@ -163,7 +163,7 @@
   [& input-file-paths]
   (doseq [input-file-path input-file-paths]
     (with-open [log-file-reader (clojure.java.io/reader input-file-path)]
-      (info "Verify that input file " input-file-path " exists.")))
+      (info "Verify that input file " input-file-path " exists."))
   
   (let [etlds (get-effective-tld-structure)]    
     (doseq [input-file-path input-file-paths]
@@ -187,6 +187,6 @@
                   freqs (frequencies (map rest date-partition))
               ]
               (info "Calculated frequencies for partition. " the-date)
-              (storage/insert-freqs freqs the-date))))))))
+              (storage/insert-freqs freqs the-date)))))))))
           
     

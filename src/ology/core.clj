@@ -161,9 +161,13 @@
 (defn -main
   "Accept list of log file paths"
   [& input-file-paths]
+
+  (info "Verify input files.")  
   (doseq [input-file-path input-file-paths]
+    
     (with-open [log-file-reader (clojure.java.io/reader input-file-path)]
-      (info "Verify that input file " input-file-path " exists."))
+      (info "Verify that input file " input-file-path " exists.")))
+  (info "Finished verifying input files.")  
   
   (let [etlds (get-effective-tld-structure)]    
     (doseq [input-file-path input-file-paths]
@@ -180,13 +184,17 @@
               ]
           
           (doseq [date-partition date-partitions]
-            (info "Process date partition. ")
+            (info "Start processing date partition. ")
             
             (let [; Date of the first line of this partition of entries which all have the same date.
                   the-date (first (first date-partition))
                   freqs (frequencies (map rest date-partition))
               ]
               (info "Calculated frequencies for partition. " the-date)
-              (storage/insert-freqs freqs the-date)))))))))
+              (storage/insert-freqs freqs the-date)))))
+      (info "Finished inserting from" input-file-path)
+      )
+    (info "Finished log file input.")
+    ))
           
     

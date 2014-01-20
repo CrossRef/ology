@@ -165,13 +165,12 @@
 
 (defn query-top-domains
   "For a given time period return the top domains (i.e. combination of domain and TLD)."
-  [start-date end-date]
+  [start-date end-date subdomain-rollup page-number page-size]
   (let [response (mc/aggregate aggregate-domain-table [
     {"$match" {date-field {"$gte" start-date "$lte" end-date}}}
     {"$project" {
             "_id" 0
             count-field ($ count-field)
-            subdomain-field ($ (_id subdomain-field))
             domain-field ($ (_id domain-field))
             tld-field ($ (_id tld-field))
             date-field ($ date-field)}}
@@ -181,8 +180,49 @@
       }}
     ; Exclude small counts. Arbitrary number.
     {"$match" {count-field {"$gt" 10}}}
+    
+    ; Mongo has some sorting magic for this sequence of operations.
+    ; http://docs.mongodb.org/manual/reference/operator/aggregation/limit/
     {"$sort" {count-field -1}}
-  ])] response))
+    {"$limit" (* (inc page-number) page-size)}
+    {"$skip" (- (* (inc page-number) page-size) page-size)}
+  ])
+    response-formatted (map (fn [entry] {:full-domain (str (domain-field (:_id entry)) "." (tld-field (:_id entry))) :count (:count entry) domain-field (domain-field (:_id entry)) tld-field (tld-field (:_id entry))}) response)    
+  ]
+    
+    (if (not subdomain-rollup)
+      response-formatted  
+      (map (fn [entry]
+             
+        (let [subdomain-response 
+        (mc/aggregate aggregate-domain-table [
+          {"$match" {
+            date-field {"$gte" start-date "$lte" end-date} 
+            (_id domain-field) (domain-field entry)
+            (_id tld-field) (tld-field entry)
+            }}
+          {"$project" {
+            "_id" 0
+            count-field ($ count-field)
+            subdomain-field ($ (_id subdomain-field))
+            domain-field ($ (_id domain-field))
+            tld-field ($ (_id tld-field))
+            date-field ($ date-field)}}
+          {"$group"
+            {"_id" {domain-field ($ domain-field) tld-field ($ tld-field) subdomain-field ($ subdomain-field)}
+            "count" {"$sum" ($ count-field)}
+          }}
+          ; Exclude small counts. Arbitrary number.
+          {"$match" {count-field {"$gt" 10}}}
+          {"$sort" {count-field -1}}
+        ])
+        subdomain-response-formatted (map (fn [entry] {:full-domain (str (subdomain-field (:_id entry)) "." (domain-field (:_id entry)) "." (tld-field (:_id entry))) :count (:count entry)}) subdomain-response)    
+        ]
+        {:domain entry :subdomains subdomain-response-formatted})
+        
+             
+      ) response-formatted)
+    )))
 
 ; Updating the table
 

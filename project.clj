@@ -19,6 +19,6 @@
   :ring {:handler ology.handler/app}
   :main ^:skip-aot ology.core
   :target-path "target/%s"
-  :jvm-opts ["-Xmx3g" "-server"]
+  :jvm-opts ["-Xmx5g" "-server"]
   :profiles {:uberjar {:aot :all}}
   )

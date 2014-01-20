@@ -162,7 +162,9 @@
   "Accept list of log file paths"
   [& input-file-paths]
 
-  (info "Verify input files.")  
+  (info "Verify" (count input-file-paths) "input files.")  
+  (info "Files:" input-file-paths)  
+  
   (doseq [input-file-path input-file-paths]
     
     (with-open [log-file-reader (clojure.java.io/reader input-file-path)]

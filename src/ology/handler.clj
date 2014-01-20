@@ -23,7 +23,7 @@
      :end-date end-date
      :doi doi}))
 
-(defn validate-query 
+(defn validate-days-query 
   "Validate query. Return empty vector on success or list of error strings" 
   [query]
   
@@ -53,8 +53,8 @@
           end-date (when end-date-input (parse date-formatter end-date-input))
           domain (get query "domain")
           doi (get query "doi")
-          query (construct-query start-date end-date domain doi)
-          validation (validate-query query)]
+          the-query (construct-query start-date end-date domain doi)
+          validation (validate-days-query the-query)]
       (if (not (empty? validation))
         {:status 400 :headers {"Content-Type" "application/json"} :body (clojure.string/join "\n" validation)}
         {:status 200 :headers {"Content-Type" "application/json"} :body {
@@ -64,14 +64,30 @@
             :doi doi
             :domain domain
             }
-          :query query
-          :result (storage/query-days query group-method)}}))
+          :query the-query
+          :result (storage/query-days the-query group-method)}}))
     (catch IllegalArgumentException ex {:status 400 :headers {"Content-Type" "application/json"} :body (str "Date: " (.getMessage ex))})))
+
+
+(defn top-domains 
+  [params]
+  (try
+    (let [query (params :query-params)
+          start-date-input (get query "start-date")
+          end-date-input (get query "end-date")
+          start-date (when start-date-input (parse date-formatter start-date-input))
+          end-date (when end-date-input (parse date-formatter end-date-input))]
+      (if (or (empty? start-date-input) (empty end-date-input))
+        {:status 400 :headers {"Content-Type" "application/json"} :body "Supply start-date and end-date parameters."}
+        {:status 200 :headers {"Content-Type" "application/json"} :body (storage/query-top-domains start-date end-date)}))
+    (catch IllegalArgumentException ex {:status 400 :headers {"Content-Type" "application/json"} :body (str "Date: " (.getMessage ex))})))
+
 
 (defroutes app-routes
   (GET "/" [] (redirect "/index.html"))
   (GET "/heartbeat" [] heartbeat)
   (GET "/days" {params :params} (wrap-json-response days))
+  (GET "/top-domains" {params :params} (wrap-json-response top-domains))
   (route/resources "/")  )
 
 (def app

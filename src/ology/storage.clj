@@ -159,12 +159,30 @@
         the-response (map (fn [x] {:count (count-field x) :date (build-date-f (:_id x))}) response)
         sorted-response (sort-by :date the-response)
         ]
+    
+      (info "Query days using collection " table-choice)    
+        {:days sorted-response :count total-count}))
 
-      
-    
-      (info "Query days using collection " table-choice)
-    
-        {:days sorted-response :count total-count}))      
+(defn query-top-domains
+  "For a given time period return the top domains (i.e. combination of domain and TLD)."
+  [start-date end-date]
+  (let [response (mc/aggregate aggregate-domain-table [
+    {"$match" {date-field {"$gte" start-date "$lte" end-date}}}
+    {"$project" {
+            "_id" 0
+            count-field ($ count-field)
+            subdomain-field ($ (_id subdomain-field))
+            domain-field ($ (_id domain-field))
+            tld-field ($ (_id tld-field))
+            date-field ($ date-field)}}
+    {"$group"
+     {"_id" {domain-field ($ domain-field) tld-field ($ tld-field)}
+      "count" {"$sum" ($ count-field)}
+      }}
+    ; Exclude small counts. Arbitrary number.
+    {"$match" {count-field {"$gt" 10}}}
+    {"$sort" {count-field -1}}
+  ])] response))
 
 ; Updating the table
 

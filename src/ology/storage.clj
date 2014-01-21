@@ -164,8 +164,9 @@
         {:days sorted-response :count total-count}))
 
 (defn query-top-domains
-  "For a given time period return the top domains (i.e. combination of domain and TLD)."
-  [start-date end-date subdomain-rollup page-number page-size]
+  "For a given time period return the top domains (i.e. combination of domain and TLD).
+  subdomain-rollup can be one of [nil :all :day :month :year], in which case the subdomains for each domain are found and then optionally grouped in date-buckets over the time period."
+  [start-date end-date subdomain-rollup page-number page-size] 
   (let [response (mc/aggregate aggregate-domain-table [
     {"$match" {date-field {"$gte" start-date "$lte" end-date}}}
     {"$project" {
@@ -191,10 +192,50 @@
   ]
     
     (if (not subdomain-rollup)
-      response-formatted  
+      response-formatted 
       (map (fn [entry]
              
-        (let [subdomain-response 
+        (let [; Choose a Mongo aggregation group function.
+            rollup-group-q (case subdomain-rollup
+            :all {"$group" {"_id" {domain-field ($ domain-field) tld-field ($ tld-field) subdomain-field ($ subdomain-field)} "count" {"$sum" ($ count-field)}}}
+            :day {"$group" {"_id" {domain-field ($ domain-field) tld-field ($ tld-field) subdomain-field ($ subdomain-field) year-field ($ year-field) month-field ($ month-field) day-field ($ day-field)} "count" {"$sum" ($ count-field)}}}
+            :month {"$group" {"_id" {domain-field ($ domain-field) tld-field ($ tld-field) subdomain-field ($ subdomain-field) year-field ($ year-field) month-field ($ month-field)} "count" {"$sum" ($ count-field)}}}
+            :year {"$group" {"_id" {domain-field ($ domain-field) tld-field ($ tld-field) subdomain-field ($ subdomain-field) year-field ($ year-field)} "count" {"$sum" ($ count-field)}}}
+            {"$group" {"_id" {domain-field ($ domain-field) tld-field ($ tld-field) subdomain-field ($ subdomain-field)} "count" {"$sum" ($ count-field)}}}
+            ) 
+            
+            ; Choose a function to format turn Mongo rollup entries.
+            rollup-format-f (case subdomain-rollup
+              :all (fn [entry] {
+                :full-domain (str (subdomain-field (:_id entry)) "." (domain-field (:_id entry)) "." (tld-field (:_id entry)))
+                :count (:count entry)})
+              :day (fn [entry] {
+                :full-domain (str (subdomain-field (:_id entry)) "." (domain-field (:_id entry)) "." (tld-field (:_id entry)))
+                :count (:count entry)
+                :date (time/date-time (year-field (:_id entry)) (month-field (:_id entry)) (day-field (:_id entry)))
+                :year (year-field (:_id entry))
+                :month (month-field (:_id entry))
+                :day (day-field (:_id entry))
+                })
+              :month (fn [entry] {
+                :full-domain (str (subdomain-field (:_id entry)) "." (domain-field (:_id entry)) "." (tld-field (:_id (:_id entry))))
+                :count (:count entry)
+                :date (time/date-time (year-field (:_id entry)) (month-field (:_id entry)))
+                :year (year-field (:_id entry))
+                :month (month-field (:_id entry))
+                })
+              :year (fn [entry]
+                {:full-domain (str (subdomain-field (:_id entry)) "." (domain-field (:_id (:_id entry))) "." (tld-field (:_id (:_id entry))))
+                 :count (:count entry)
+                 :date (time/date-time (year-field (:_id entry)))
+                 :year (year-field (:_id entry))
+                 })
+              (fn [entry]
+                {:full-domain (str (subdomain-field (:_id entry)) "." (domain-field (:_id entry)) "." (tld-field (:_id entry))) :count (:count entry)
+                 :date start-date
+                 })                  
+            )
+            subdomain-response 
         (mc/aggregate aggregate-domain-table [
           {"$match" {
             date-field {"$gte" start-date "$lte" end-date} 
@@ -207,22 +248,26 @@
             subdomain-field ($ (_id subdomain-field))
             domain-field ($ (_id domain-field))
             tld-field ($ (_id tld-field))
+            year-field ($ (_id year-field))
+            month-field ($ (_id month-field))
+            day-field ($ (_id day-field))
             date-field ($ date-field)}}
-          {"$group"
-            {"_id" {domain-field ($ domain-field) tld-field ($ tld-field) subdomain-field ($ subdomain-field)}
-            "count" {"$sum" ($ count-field)}
-          }}
+          
+          ; Group aggregation pipeline function.
+          rollup-group-q
+          
           ; Exclude small counts. Arbitrary number.
           {"$match" {count-field {"$gt" 10}}}
           {"$sort" {count-field -1}}
         ])
-        subdomain-response-formatted (map (fn [entry] {:full-domain (str (subdomain-field (:_id entry)) "." (domain-field (:_id entry)) "." (tld-field (:_id entry))) :count (:count entry)}) subdomain-response)    
+        ; Format and sort buckets per subdomain by date.
+        subdomain-response-formatted (sort-by :date (map rollup-format-f subdomain-response))
+        ; Group into per subdomain.
+        subdomain-date-group (group-by :full-domain subdomain-response-formatted)
         ]
-        {:domain entry :subdomains subdomain-response-formatted})
-        
-             
-      ) response-formatted)
-    )))
+        ; Output from map function.
+        {:domain entry :subdomains subdomain-date-group})       
+      ) response-formatted))))
 
 ; Updating the table
 

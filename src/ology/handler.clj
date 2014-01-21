@@ -77,7 +77,7 @@
   [params]
   (try
     (let [query (params :query-params)
-          subdomain-rollup (= "true" (get query "subdomain-rollup"))
+          subdomain-rollup (case (get query "subdomain-rollup") nil nil "" nil "all" :all "day" :day "month" :month "year" :year nil)
           start-date-input (get query "start-date")
           end-date-input (get query "end-date")
           ; page is 1-indexed on the API.
@@ -89,7 +89,7 @@
         {:status 200 :headers {"Content-Type" "application/json"} :body
           (storage/query-top-domains start-date end-date subdomain-rollup page-number page-size)
         }))
-    (catch IllegalArgumentException ex {:status 400 :headers {"Content-Type" "application/json"} :body (str "Date: " (.getMessage ex))})))
+    (catch IllegalArgumentException ex {:status 400 :headers {"Content-Type" "application/json"} :body  (.getMessage ex)})))
 
 
 (defroutes app-routes

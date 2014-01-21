@@ -187,7 +187,8 @@
               date-partitions (partition-by first parsed-lines)
               ]
 
-        (pmap (fn [date-partition]
+
+          (doseq [date-partition date-partitions]
             (info "Start processing date partition. ")
             
             (let [; Date of the first line of this partition of entries which all have the same date.
@@ -195,13 +196,8 @@
                   freqs (frequencies (map rest date-partition))
               ]
               (info "Calculated frequencies for partition. " the-date)
-              (storage/insert-freqs freqs the-date))) date-partitions) 
-          
-          
-          ))
-      (info "Finished inserting from" input-file-path)
-      )
-    (info "Finished log file input.")
-    ))
+              (storage/insert-freqs freqs the-date)))))
+      (info "Finished inserting from" input-file-path))
+    (info "Finished log file input.")))
           
     

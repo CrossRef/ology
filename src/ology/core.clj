@@ -145,9 +145,38 @@
                   ^org.joda.time.DateTime date-prelim (format/parse log-date-formatter date-str)
                   ^org.joda.time.DateTime the-date (.withTimeAtStartOfDay date-prelim)
                   domain-triple (get-main-domain (get-host referrer-url) etlds)
-                  ]
-                
+                  ]                
                   [the-date doi domain-triple]))))
+
+
+(defn partition-many-by [f s]
+  (let [first-list (first (drop-while (complement seq) s))
+        match-val (f (first first-list))
+        remains (filter #(not (empty? %)) 
+                        (map #(drop-while (fn [ss] (= match-val (f ss))) %) 
+                             s))]
+    (when match-val
+      (cons
+       (apply concat
+              (map #(take-while (fn [ss] (= match-val (f ss))) %)
+                   s))
+         (lazy-seq (partition-many-by f remains))))))
+
+
+(defn lazy-merge-by
+ ([compfn xs ys] 
+  (lazy-seq
+    (cond
+      (empty? xs) ys
+      (empty? ys) xs
+      :else (if (compfn (first xs) (first ys)) 
+              (cons (first xs) (lazy-merge-by compfn (rest xs) ys))
+              (cons (first ys) (lazy-merge-by compfn xs (rest ys)))))))
+  ([compfn xs ys & more] 
+   (apply lazy-merge-by compfn (lazy-merge-by compfn xs ys) more)))
+
+
+
 
 (defn count-per-key
   "Map a map of [key vectors] to [key count]"
@@ -169,35 +198,40 @@
   
   (doseq [input-file-path input-file-paths]
     
-    (with-open [log-file-reader (clojure.java.io/reader input-file-path)]
-      (info "Verify that input file " input-file-path " exists.")))
-  (info "Finished verifying input files.")  
-  
-  (let [etlds (get-effective-tld-structure)]    
-    (doseq [input-file-path input-file-paths]
-      (info "Inserting from " input-file-path)
-      (with-open [log-file-reader (clojure.java.io/reader input-file-path)]
-        (let [log-file-seq (line-seq log-file-reader)
-
-              ; Filter out lines that don't parse.
-              parsed-lines (remove nil? (map parse-line log-file-seq))
-
-              ; Partition into sequences of date.   
-              ; The first element of the parsed result is the date. The other two are the thing we want to keep. 
-              date-partitions (partition-by first parsed-lines)
-              ]
-
-
-          (doseq [date-partition date-partitions]
-            (info "Start processing date partition. ")
-            
-            (let [; Date of the first line of this partition of entries which all have the same date.
-                  ^org.joda.time.DateTime the-date (first (first date-partition))
-                  freqs (frequencies (map rest date-partition))
-              ]
-              (info "Calculated frequencies for partition. " the-date)
-              (storage/insert-freqs freqs the-date)))))
-      (info "Finished inserting from" input-file-path))
-    (info "Finished log file input.")))
-          
     
+    (let [the-file (clojure.java.io/file input-file-path)
+          log-file-reader (clojure.java.io/reader the-file)]
+      (info "Verify that input file " input-file-path " exists.")
+      
+      ; TODO close.
+      ))
+  (info "Finished verifying input files.")
+  
+    
+  
+  (let [etlds (get-effective-tld-structure)
+        files (map clojure.java.io/file input-file-paths)
+        readers (map clojure.java.io/reader files)
+        parsed-line-sequences (map (fn [reader] (remove nil? (map parse-line (line-seq reader)))) readers)
+        date-partitions (partition-many-by first parsed-line-sequences)
+        
+        ; date-partitions (partition-by first (apply lazy-merge-by #(<= (first %) (first %2)) input-vals))
+        ]
+        (doseq [date-partition date-partitions]
+          (info "Start processing date partition. " (first date-partition))
+          ; (prn date-partition)
+          
+          (let [; Date of the first line of this partition of entries which all have the same date.
+                ^org.joda.time.DateTime the-date (first (first date-partition))
+                doi-freqs (frequencies (map #(get % 1) date-partition))
+                domain-freqs (frequencies (map #(get % 2) date-partition))
+                domain-doi-freqs (frequencies (map rest date-partition))
+            ]
+            (info "Calculated frequencies for partition. " the-date)
+            (storage/insert-doi-freqs doi-freqs the-date)
+            (storage/insert-domain-freqs domain-freqs the-date)
+            (storage/insert-domain-doi-freqs domain-doi-freqs the-date)
+            (info "Inserted.")
+            ))))
+        
+  

@@ -15,6 +15,9 @@
       ^ServerAddress sa  (mg/server-address "127.0.0.1" 27017)]
   (mg/connect! sa opts))
 
+
+(def batch-size 10000)
+
 ; Three tables. Data is sufficiently big that although all jobs can be done by the full table it's worth pre-calculating others.
 (def aggregate-doi-domain-table "aggregated-domain-doi")
 (def aggregate-domain-table "aggregated-domain")
@@ -41,57 +44,63 @@
 (defn _id [a] (str "_id." (name a)))
 
 (mg/set-db! (mg/get-db "referral-logs"))
+(mg/set-default-write-concern! WriteConcern/UNACKNOWLEDGED)
 
-; Index for insertion update query.
-(mc/ensure-index aggregate-doi-domain-table (array-map
-  (_id year-field) 1
-  (_id month-field) 1
-  (_id day-field) 1
-  (_id doi-field) 1
-  (_id subdomain-field) 1
-  (_id domain-field) 1
-  (_id tld-field) 1
-))
+(when false
+  ; Index for insertion update query.
+  (mc/ensure-index aggregate-doi-domain-table (array-map
+    (_id year-field) 1
+    (_id month-field) 1
+    (_id day-field) 1
+    (_id doi-field) 1
+    (_id subdomain-field) 1
+    (_id domain-field) 1
+    (_id tld-field) 1
+  ))
 
-; Indexes for various API queries.
+  ; Indexes for various API queries.
 
-; Date + DOI + domain
-(mc/ensure-index aggregate-doi-domain-table (array-map
-  (_id doi-field) 1
-  (_id subdomain-field) 1
-  (_id domain-field) 1
-  (_id tld-field) 1
-  date-field 1
-))
+  ; Date + DOI + domain
+  (mc/ensure-index aggregate-doi-domain-table (array-map
+    (_id doi-field) 1
+    (_id subdomain-field) 1
+    (_id domain-field) 1
+    (_id tld-field) 1
+    date-field 1
+  ))
 
-; Date + DOI
-(mc/ensure-index aggregate-doi-domain-table (array-map
-  (_id doi-field) 1
-  date-field 1
-))
+  ; Date + DOI
+  (mc/ensure-index aggregate-doi-domain-table (array-map
+    (_id doi-field) 1
+    date-field 1
+  ))
 
-; Date + Domain
-(mc/ensure-index aggregate-doi-domain-table (array-map
-  (_id subdomain-field) 1
-  (_id domain-field) 1
-  (_id tld-field) 1
-  date-field 1
-))
+  ; Date + Domain
+  (mc/ensure-index aggregate-doi-domain-table (array-map
+    (_id subdomain-field) 1
+    (_id domain-field) 1
+    (_id tld-field) 1
+    date-field 1
+  ))
 
-; Date + DOI
-(mc/ensure-index aggregate-doi-table (array-map
-  (_id doi-field) 1
-  date-field 1
-))
+  ; Date + DOI
+  (mc/ensure-index aggregate-doi-table (array-map
+    (_id doi-field) 1
+    date-field 1
+  ))
 
-; Date + Domain
-(mc/ensure-index aggregate-domain-table (array-map
-  (_id subdomain-field) 1
-  (_id domain-field) 1
-  (_id tld-field) 1
-  date-field 1
-))
+  ; Date + Domain
+  (mc/ensure-index aggregate-domain-table (array-map
+    (_id subdomain-field) 1
+    (_id domain-field) 1
+    (_id tld-field) 1
+    date-field 1
+  ))
+)
 
+(mc/drop-indexes aggregate-doi-domain-table)
+(mc/drop-indexes aggregate-doi-table)
+(mc/drop-indexes aggregate-domain-table)
 
 (defn query-days
   "For a query, return a vector of the count per day and the total for the whole period. Group by argument should be one of [:day :month :year]"
@@ -105,10 +114,10 @@
 
         match-arg-fns [
           (fn [] (when (and start-date end-date) [["d" {"$gte" start-date "$lte" end-date}]]))
-          (fn [] (when (not (empty? doi)) [[(_id doi-field) doi]]))
-          (fn [] (when (not (empty? subdomain)) [[(_id subdomain-field) subdomain]]))
-          (fn [] (when (not (empty? domain)) [[(_id domain-field) domain]]))
-          (fn [] (when (not (empty? tld)) [[(_id tld-field) tld]]))]
+          (fn [] (when (not (empty? doi)) [[doi-field doi]]))
+          (fn [] (when (not (empty? subdomain)) [[subdomain-field subdomain]]))
+          (fn [] (when (not (empty? domain)) [[domain-field domain]]))
+          (fn [] (when (not (empty? tld)) [[tld-field tld]]))]
           
         ; Build query map.
         match-args (apply concat (remove nil? ((apply juxt match-arg-fns))))
@@ -117,9 +126,9 @@
         
         ; Choose the best collection to run this over.
         table-choice (cond
-          (and (get match-q (_id doi-field)) (or (get match-q (_id subdomain-field)) (get match-q (_id domain-field)) (get match-q (_id tld-field)))) aggregate-doi-domain-table
-          (get match-q (_id doi-field)) aggregate-doi-table
-          (or (match-q (_id subdomain-field)) (get match-q (_id domain-field)) (get match-q (_id tld-field))) aggregate-domain-table
+          (and (get match-q doi-field) (or (get match-q subdomain-field) (get match-q domain-field) (get match-q tld-field))) aggregate-doi-domain-table
+          (get match-q doi-field) aggregate-doi-table
+          (or (match-q subdomain-field) (get match-q domain-field) (get match-q tld-field)) aggregate-domain-table
           :else aggregate-doi-domain-table)
         
         group-q (cond
@@ -144,13 +153,19 @@
           {"$project" {
             "_id" 0
             count-field 1
-            year-field ($ (_id year-field))
-            month-field ($ (_id month-field))
-            day-field ($ (_id day-field))
+            year-field ($ year-field)
+            month-field ($ month-field)
+            day-field ($ day-field)
             date-field ($ date-field)}}
           {"$group" {
             "_id" group-q          
             count-field {"$sum" ($ count-field)}}}
+          {"$project" {
+            "_id" 0
+            count-field 1
+            year-field ($ (_id year-field))
+            month-field ($ (_id month-field))
+            day-field ($ (_id day-field))}}
           ])
           
         total-count (reduce + (map #(:count %1) response))
@@ -169,12 +184,12 @@
   [start-date end-date subdomain-rollup page-number page-size] 
   (let [response (mc/aggregate aggregate-domain-table [
     {"$match" {date-field {"$gte" start-date "$lte" end-date}}}
-    {"$project" {
-            "_id" 0
-            count-field ($ count-field)
-            domain-field ($ (_id domain-field))
-            tld-field ($ (_id tld-field))
-            date-field ($ date-field)}}
+    ; {"$project" {
+    ;         "_id" 0
+    ;         count-field ($ count-field)
+    ;         domain-field ($ domain-field)
+    ;         tld-field ($ tld-field)
+    ;         date-field ($ date-field)}}
     {"$group"
      {"_id" {domain-field ($ domain-field) tld-field ($ tld-field)}
       "count" {"$sum" ($ count-field)}
@@ -239,19 +254,19 @@
         (mc/aggregate aggregate-domain-table [
           {"$match" {
             date-field {"$gte" start-date "$lte" end-date} 
-            (_id domain-field) (domain-field entry)
-            (_id tld-field) (tld-field entry)
-            }}
-          {"$project" {
-            "_id" 0
-            count-field ($ count-field)
-            subdomain-field ($ (_id subdomain-field))
-            domain-field ($ (_id domain-field))
-            tld-field ($ (_id tld-field))
-            year-field ($ (_id year-field))
-            month-field ($ (_id month-field))
-            day-field ($ (_id day-field))
-            date-field ($ date-field)}}
+            domain-field (domain-field entry)
+            tld-field (tld-field entry)
+          }}
+          ; {"$project" {
+          ;   "_id" 0
+          ;   count-field ($ count-field)
+          ;   subdomain-field ($ (_id subdomain-field))
+          ;   domain-field ($ (_id domain-field))
+          ;   tld-field ($ (_id tld-field))
+          ;   year-field ($ (_id year-field))
+          ;   month-field ($ (_id month-field))
+          ;   day-field ($ (_id day-field))
+          ;   date-field ($ date-field)}}
           
           ; Group aggregation pipeline function.
           rollup-group-q
@@ -271,53 +286,94 @@
 
 ; Updating the table
 
-(defn insert-freqs
+(defn insert-doi-freqs
   "For a map of {[doi, domain-triple] count} and a date, increment the counts in the aggregate table."
   [frequencies the-date]
   (let
     [the-year (time/year the-date)
     the-month (time/month the-date)
-    the-day (time/day the-date)]
-    
-   (doseq [[[doi [subdomain domain tld]] the-count] frequencies]
-     ; Update the DOI x domain x date table.
-      (mc/update aggregate-doi-domain-table
-        {:_id {
-          doi-field doi
-          year-field the-year
-          month-field the-month
-          day-field the-day
-          subdomain-field subdomain
-          domain-field domain
-          tld-field tld
-        }}
-        {"$inc" {count-field the-count}
-         "$set" {date-field the-date}}
-        :upsert true)
+    the-day (time/day the-date)
+                    
+    doi-values (map (fn [[doi the-count]]
+      { year-field the-year
+        month-field the-month
+        day-field the-day
+        doi-field doi
+        count-field the-count
+        date-field the-date}) frequencies)]
+  
+    (doseq [batch (partition batch-size batch-size nil doi-values)]
+      ; (info "Insert" (count batch) aggregate-doi-table)
 
-      ; Update domain x date
-      (mc/update aggregate-domain-table
-        {:_id {
-          year-field the-year
-          month-field the-month
-          day-field the-day
-          subdomain-field subdomain
-          domain-field domain
-          tld-field tld
-        }}
-        {"$inc" {count-field the-count}
-         "$set" {date-field the-date}}
-        :upsert true)
+      (doall (map #(mc/insert-and-return aggregate-doi-table % WriteConcern/UNACKNOWLEDGED) batch))
+
+      ; (mc/insert-batch aggregate-doi-table (doall batch))
+      ; (info "Done inserting")
+    )))
+
+(defn insert-domain-freqs
+  "For a map of {[doi, domain-triple] count} and a date, increment the counts in the aggregate table."
+  [frequencies the-date]
+  (let
+    [the-year (time/year the-date)
+    the-month (time/month the-date)
+    the-day (time/day the-date)
+
+    
+     domain-values (map (fn [[[subdomain domain tld] the-count]] 
+      { year-field the-year
+        month-field the-month
+        day-field the-day
+        subdomain-field subdomain
+        domain-field domain
+        tld-field tld
+        count-field the-count
+        date-field the-date}) frequencies)]
+  
+    (doseq [batch (partition batch-size batch-size nil domain-values)]
+      ; (info "Insert" (count batch) aggregate-doi-domain-table)
       
-      ; Update DOI x date
-      (mc/update aggregate-doi-table
-        {:_id {
-          year-field the-year
-          month-field the-month
-          day-field the-day
-          doi-field doi
-        }}
-        {"$inc" {count-field the-count}
-         "$set" {date-field the-date}}
-        :upsert true))))
+      ; Strange, but this is quicker.
+      ; https://groups.google.com/forum/#!msg/clojure-mongodb/1gxBRWOYF3o/IitJZyrBg34J
+      (doall (map #(mc/insert-and-return aggregate-domain-table % WriteConcern/UNACKNOWLEDGED) batch))
+      
+      ; (mc/insert-batch aggregate-doi-domain-table (doall batch) WriteConcern/UNACKNOWLEDGED)
+      ; (info "Done inserting")
+    )
+
+    ))
+
+
+
+(defn insert-domain-doi-freqs
+  "For a map of {[doi, domain-triple] count} and a date, increment the counts in the aggregate table."
+  [frequencies the-date]
+  (let
+    [the-year (time/year the-date)
+    the-month (time/month the-date)
+    the-day (time/day the-date)
+    
+    doi-domain-values (map (fn [[[doi [subdomain domain tld]] the-count]]      
+      { doi-field doi
+        year-field the-year
+        month-field the-month
+        day-field the-day
+        subdomain-field subdomain
+        domain-field domain
+        tld-field tld
+        count-field the-count
+        date-field the-date}
+        ) frequencies)
+    ]
+  
+    (doseq [batch (partition batch-size batch-size nil doi-domain-values)]
+      ; (info "Insert" (count batch) aggregate-doi-domain-table)
+      
+      ; Strange, but this is quicker.
+      ; https://groups.google.com/forum/#!msg/clojure-mongodb/1gxBRWOYF3o/IitJZyrBg34J
+      (doall (map #(mc/insert-and-return aggregate-doi-domain-table % WriteConcern/UNACKNOWLEDGED) batch))
+      
+      ; (mc/insert-batch aggregate-doi-domain-table (doall batch) WriteConcern/UNACKNOWLEDGED)
+      ; (info "Done inserting")
+    )))
 

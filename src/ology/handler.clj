@@ -97,7 +97,6 @@
   (GET "/heartbeat" [] heartbeat)
   (GET "/days" {params :params} (wrap-json-response days))
   (GET "/top-domains" {params :params} (wrap-json-response top-domains))
-  (GET "/top-domains" {params :params} (wrap-json-response top-domains))
   (route/resources "/")  )
 
 (def app

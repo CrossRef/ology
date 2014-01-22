@@ -151,33 +151,19 @@
                   [the-date doi domain-triple]))))
 
 
-(defn partition-many-by [f s]
-  (let [first-list (first (drop-while (complement seq) s))
+(defn partition-many-by [f comp-f s]
+  (let [sorted-s (sort-by first comp-f s)
+        first-list (first (drop-while (complement seq) sorted-s))
         match-val (f (first first-list))
         remains (filter #(not (empty? %)) 
                         (map #(drop-while (fn [ss] (= match-val (f ss))) %) 
-                             s))]
+                             sorted-s))]
     (when match-val
       (cons
-       (apply concat
-              (map #(take-while (fn [ss] (= match-val (f ss))) %)
-                   s))
-         (lazy-seq (partition-many-by f remains))))))
-
-
-(defn lazy-merge-by
- ([compfn xs ys] 
-  (lazy-seq
-    (cond
-      (empty? xs) ys
-      (empty? ys) xs
-      :else (if (compfn (first xs) (first ys)) 
-              (cons (first xs) (lazy-merge-by compfn (rest xs) ys))
-              (cons (first ys) (lazy-merge-by compfn xs (rest ys)))))))
-  ([compfn xs ys & more] 
-   (apply lazy-merge-by compfn (lazy-merge-by compfn xs ys) more)))
-
-
+        (apply concat
+          (map #(take-while (fn [ss] (= match-val (f ss))) %)
+               sorted-s))
+        (lazy-seq (partition-many-by f comp-f remains))))))
 
 
 (defn count-per-key
@@ -194,7 +180,6 @@
 (defn -main
   "Accept list of log file paths"
   [& input-file-paths]
-
   (info "Verify" (count input-file-paths) "input files.")  
   (info "Files:" input-file-paths)  
   
@@ -210,7 +195,7 @@
         files (map clojure.java.io/file input-file-paths)
         readers (map clojure.java.io/reader files)
         parsed-line-sequences (map (fn [reader] (remove nil? (map parse-line (line-seq reader)))) readers)
-        date-partitions (partition-many-by first parsed-line-sequences)   
+        date-partitions (partition-many-by first (fn [a b] (compare (first a) (first b))) parsed-line-sequences)   
         ]
         (doseq [date-partition date-partitions]
           (info "Start processing date partition. " (first date-partition))
@@ -227,7 +212,6 @@
             (storage/insert-domain-doi-freqs domain-doi-freqs the-date)
             (info "Inserted.")
             ))
-        (doseq [reader readers] (.close reader))
-        ))
+        (doseq [reader readers] (.close reader))))
         
   

@@ -191,27 +191,65 @@
   
   (info "Finished verifying input files.")
   
-  (let [etlds (get-effective-tld-structure)
-        files (map clojure.java.io/file input-file-paths)
+  (let [files (map clojure.java.io/file input-file-paths)
         readers (map clojure.java.io/reader files)
         parsed-line-sequences (map (fn [reader] (remove nil? (map parse-line (line-seq reader)))) readers)
         date-partitions (partition-many-by first (fn [a b] (compare (first a) (first b))) parsed-line-sequences)   
         ]
         (doseq [date-partition date-partitions]
-          (info "Start processing date partition. " (first date-partition))
+          (info "Start processing date partition for DOI calculation. " (first date-partition))
           
           (let [; Date of the first line of this partition of entries which all have the same date.
                 ^org.joda.time.DateTime the-date (first (first date-partition))
                 doi-freqs (frequencies (map #(get % 1) date-partition))
-                domain-freqs (frequencies (map #(get % 2) date-partition))
-                domain-doi-freqs (frequencies (map rest date-partition))
             ]
+            
             (info "Calculated frequencies for partition. " the-date)
             (storage/insert-doi-freqs doi-freqs the-date)
+            (info "Inserted.")
+            ))
+        (doseq [reader readers] (.close reader)))
+        
+  (let [files (map clojure.java.io/file input-file-paths)
+        readers (map clojure.java.io/reader files)
+        parsed-line-sequences (map (fn [reader] (remove nil? (map parse-line (line-seq reader)))) readers)
+        date-partitions (partition-many-by first (fn [a b] (compare (first a) (first b))) parsed-line-sequences)   
+        ]
+        (doseq [date-partition date-partitions]
+          (info "Start processing date partition for Domain calculation. " (first date-partition))
+          
+          (let [; Date of the first line of this partition of entries which all have the same date.
+                ^org.joda.time.DateTime the-date (first (first date-partition))
+                domain-freqs (frequencies (map #(get % 2) date-partition))
+            ]
+            
+            (info "Calculated frequencies for partition. " the-date)
             (storage/insert-domain-freqs domain-freqs the-date)
+            (info "Inserted.")
+            ))
+        (doseq [reader readers] (.close reader)))
+
+  (let [files (map clojure.java.io/file input-file-paths)
+        readers (map clojure.java.io/reader files)
+        parsed-line-sequences (map (fn [reader] (remove nil? (map parse-line (line-seq reader)))) readers)
+        date-partitions (partition-many-by first (fn [a b] (compare (first a) (first b))) parsed-line-sequences)   
+        ]
+            
+        (doseq [date-partition date-partitions]
+          (info "Start processing date partition for Domain x DOI calculation. " (first date-partition))
+          
+          (let [; Date of the first line of this partition of entries which all have the same date.
+                ^org.joda.time.DateTime the-date (first (first date-partition))
+                domain-doi-freqs (frequencies (map rest date-partition))
+            ]
+            
+            (info "Calculated frequencies for partition. " the-date)
             (storage/insert-domain-doi-freqs domain-doi-freqs the-date)
             (info "Inserted.")
             ))
-        (doseq [reader readers] (.close reader))))
+        (doseq [reader readers] (.close reader))
+        
+        
+        ))
         
   

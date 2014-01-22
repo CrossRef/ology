@@ -184,12 +184,7 @@
   [start-date end-date subdomain-rollup page-number page-size] 
   (let [response (mc/aggregate aggregate-domain-table [
     {"$match" {date-field {"$gte" start-date "$lte" end-date}}}
-    ; {"$project" {
-    ;         "_id" 0
-    ;         count-field ($ count-field)
-    ;         domain-field ($ domain-field)
-    ;         tld-field ($ tld-field)
-    ;         date-field ($ date-field)}}
+   
     {"$group"
      {"_id" {domain-field ($ domain-field) tld-field ($ tld-field)}
       "count" {"$sum" ($ count-field)}
@@ -257,16 +252,7 @@
             domain-field (domain-field entry)
             tld-field (tld-field entry)
           }}
-          ; {"$project" {
-          ;   "_id" 0
-          ;   count-field ($ count-field)
-          ;   subdomain-field ($ (_id subdomain-field))
-          ;   domain-field ($ (_id domain-field))
-          ;   tld-field ($ (_id tld-field))
-          ;   year-field ($ (_id year-field))
-          ;   month-field ($ (_id month-field))
-          ;   day-field ($ (_id day-field))
-          ;   date-field ($ date-field)}}
+
           
           ; Group aggregation pipeline function.
           rollup-group-q
@@ -305,7 +291,7 @@
     (doseq [batch (partition batch-size batch-size nil doi-values)]
       ; (info "Insert" (count batch) aggregate-doi-table)
 
-      (doall (map #(mc/insert-and-return aggregate-doi-table % WriteConcern/UNACKNOWLEDGED) batch))
+      (dorun (map #(mc/insert-and-return aggregate-doi-table % WriteConcern/UNACKNOWLEDGED) batch))
 
       ; (mc/insert-batch aggregate-doi-table (doall batch))
       ; (info "Done inserting")
@@ -335,7 +321,7 @@
       
       ; Strange, but this is quicker.
       ; https://groups.google.com/forum/#!msg/clojure-mongodb/1gxBRWOYF3o/IitJZyrBg34J
-      (doall (map #(mc/insert-and-return aggregate-domain-table % WriteConcern/UNACKNOWLEDGED) batch))
+      (dorun (map #(mc/insert-and-return aggregate-domain-table % WriteConcern/UNACKNOWLEDGED) batch))
       
       ; (mc/insert-batch aggregate-doi-domain-table (doall batch) WriteConcern/UNACKNOWLEDGED)
       ; (info "Done inserting")
@@ -371,7 +357,7 @@
       
       ; Strange, but this is quicker.
       ; https://groups.google.com/forum/#!msg/clojure-mongodb/1gxBRWOYF3o/IitJZyrBg34J
-      (doall (map #(mc/insert-and-return aggregate-doi-domain-table % WriteConcern/UNACKNOWLEDGED) batch))
+      (dorun (map #(mc/insert-and-return aggregate-doi-domain-table % WriteConcern/UNACKNOWLEDGED) batch))
       
       ; (mc/insert-batch aggregate-doi-domain-table (doall batch) WriteConcern/UNACKNOWLEDGED)
       ; (info "Done inserting")

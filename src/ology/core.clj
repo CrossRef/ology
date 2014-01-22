@@ -199,29 +199,21 @@
   (info "Files:" input-file-paths)  
   
   (doseq [input-file-path input-file-paths]
-    
-    
     (let [the-file (clojure.java.io/file input-file-path)
           log-file-reader (clojure.java.io/reader the-file)]
-      (info "Verify that input file " input-file-path " exists.")
-      
-      ; TODO close.
-      ))
-  (info "Finished verifying input files.")
+          (info "Verify that input file " input-file-path " exists.")
+          (.close log-file-reader)))
   
-    
+  (info "Finished verifying input files.")
   
   (let [etlds (get-effective-tld-structure)
         files (map clojure.java.io/file input-file-paths)
         readers (map clojure.java.io/reader files)
         parsed-line-sequences (map (fn [reader] (remove nil? (map parse-line (line-seq reader)))) readers)
-        date-partitions (partition-many-by first parsed-line-sequences)
-        
-        ; date-partitions (partition-by first (apply lazy-merge-by #(<= (first %) (first %2)) input-vals))
+        date-partitions (partition-many-by first parsed-line-sequences)   
         ]
         (doseq [date-partition date-partitions]
           (info "Start processing date partition. " (first date-partition))
-          ; (prn date-partition)
           
           (let [; Date of the first line of this partition of entries which all have the same date.
                 ^org.joda.time.DateTime the-date (first (first date-partition))
@@ -234,6 +226,8 @@
             (storage/insert-domain-freqs domain-freqs the-date)
             (storage/insert-domain-doi-freqs domain-doi-freqs the-date)
             (info "Inserted.")
-            ))))
+            ))
+        (doseq [reader readers] (.close reader))
+        ))
         
   

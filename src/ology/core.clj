@@ -56,6 +56,8 @@
        (.getHost (new URL (str "http://" url))))
     (catch Exception _ nil)))))
 
+(defn intern-or-nil [x] (when x (.intern ^String x)))
+
 (defn get-main-domain
   "Extract the main (effective top-level domain, 'main domain' and subdomains) from a domain name. 'www.xxx.test.com' -> ['www.xxx' 'test' 'com'] . Return reversed vector of components."
   [domain etld-structure]
@@ -88,7 +90,7 @@
         etld-parts (drop (count non-etld-parts) parts)
         main-domain (first non-etld-parts)
         subdomains (reverse (rest non-etld-parts))]
-        [(apply str (interpose "." subdomains)) main-domain (apply str (interpose "." etld-parts))]))
+        [(intern-or-nil (apply str (interpose "." subdomains))) (intern-or-nil main-domain) (intern-or-nil (apply str (interpose "." etld-parts)))]))
 
 ;; Hoofing data.
 
@@ -137,10 +139,10 @@
     (let [match (re-find (re-matcher line-re line))]
         (when (seq match)
             ; match is [ip, ?, date, ?, ?, ?, doi, ?, referrer]
-            (let [^String ip (match 1)
+            (let [;^String ip (match 1)
                   ^String date-str (strip-quotes (match 3))
-                  ^String doi (match 7)
-                  ^String referrer-url (convert-special-uri  (strip-quotes (match 9)))
+                  ^String doi (.intern ^String (match 7)) 
+                  ^String referrer-url (convert-special-uri (strip-quotes (match 9)))
                   ; Half-way type hint makes a lot of difference!
                   ^org.joda.time.DateTime date-prelim (format/parse log-date-formatter date-str)
                   ^org.joda.time.DateTime the-date (.withTimeAtStartOfDay date-prelim)

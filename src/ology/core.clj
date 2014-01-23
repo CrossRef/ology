@@ -96,7 +96,7 @@
         etld-parts (drop (count non-etld-parts) parts)
         main-domain (first non-etld-parts)
         subdomains (reverse (rest non-etld-parts))]
-        [(intern-or-nil (apply str (interpose "." subdomains))) (intern-or-nil main-domain) (intern-or-nil (apply str (interpose "." etld-parts)))]))
+        [(apply str (interpose "." subdomains)) main-domain (apply str (interpose "." etld-parts))]))
 
 ;; Hoofing data.
 
@@ -147,7 +147,7 @@
             ; match is [ip, ?, date, ?, ?, ?, doi, ?, referrer]
             (let [;^String ip (match 1)
                   ^String date-str (strip-quotes (match 3))
-                  ^String doi (.intern ^String (match 7)) 
+                  ^String doi (match 7)
                   ^String referrer-url (convert-special-uri (strip-quotes (match 9)))
                   ; Half-way type hint makes a lot of difference!
                   ^org.joda.time.DateTime date-prelim (format/parse log-date-formatter date-str)
@@ -213,11 +213,12 @@
         (with-open [reader (clojure.java.io/reader the-file)]
           (let [lines (line-seq reader)
                 parsed-lines (map clojure.edn/read-string lines)
+                interned-parsed-lines (map (fn [[doi [subdomain domain tld]]] [(intern-or-nil doi) [(intern-or-nil subdomain) (intern-or-nil domain) (intern-or-nil tld)]]) parsed-lines)
                 
                 ; Each line is [doi [subdomain domain doi]], in the right format for frequencies.
-                domain-doi-freqs (frequencies parsed-lines) 
-                doi-freqs (frequencies (map first parsed-lines)) 
-                domain-freqs (frequencies (map second parsed-lines))
+                domain-doi-freqs (frequencies interned-parsed-lines) 
+                doi-freqs (frequencies (map first interned-parsed-lines)) 
+                domain-freqs (frequencies (map second interned-parsed-lines))
                 ]
             (info "Insert domain freqs")
             (storage/insert-domain-doi-freqs domain-doi-freqs the-date)

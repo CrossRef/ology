@@ -228,14 +228,14 @@
                 :day (day-field (:_id entry))
                 })
               :month (fn [entry] {
-                :full-domain (str (subdomain-field (:_id entry)) "." (domain-field (:_id entry)) "." (tld-field (:_id (:_id entry))))
+                :full-domain (str (subdomain-field (:_id entry)) "." (domain-field (:_id entry)) "." (tld-field (:_id entry)))
                 :count (:count entry)
                 :date (time/date-time (year-field (:_id entry)) (month-field (:_id entry)))
                 :year (year-field (:_id entry))
                 :month (month-field (:_id entry))
                 })
               :year (fn [entry]
-                {:full-domain (str (subdomain-field (:_id entry)) "." (domain-field (:_id (:_id entry))) "." (tld-field (:_id (:_id entry))))
+                {:full-domain (str (subdomain-field (:_id entry)) "." (domain-field (:_id entry)) "." (tld-field (:_id entry)))
                  :count (:count entry)
                  :date (time/date-time (year-field (:_id entry)))
                  :year (year-field (:_id entry))
@@ -263,11 +263,12 @@
         ])
         ; Format and sort buckets per subdomain by date.
         subdomain-response-formatted (sort-by :date (map rollup-format-f subdomain-response))
-        ; Group into per subdomain.
-        subdomain-date-group (group-by :full-domain subdomain-response-formatted)
+        ; Group into per subdomain, turning the group map into a vector.
+        subdomain-date-group (map first (map second (group-by :full-domain subdomain-response-formatted)))
+        subdomain-date-group-sorted (reverse (sort-by :count subdomain-date-group))
         ]
         ; Output from map function.
-        {:domain entry :subdomains subdomain-date-group})       
+        {:domain entry :subdomains subdomain-date-group-sorted})       
       ) response-formatted))))
 
 ; Updating the table

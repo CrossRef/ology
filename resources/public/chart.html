@@ -1,0 +1,222 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <title>CrossRef DOI referral statistics</title>
+
+    <!-- Bootstrap core CSS -->
+    <link href="bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link href="lib/rickshaw.min.css" rel="stylesheet">
+
+
+    <!-- Custom styles for this template -->
+    <link href="offcanvas.css" rel="stylesheet">
+
+    <link rel="stylesheet" href="http://code.jquery.com/ui/1.10.3/themes/smoothness/jquery-ui.css">
+
+
+  </head>
+
+  <body>
+    <div class="navbar navbar-fixed-top navbar-inverse" role="navigation">
+      <div class="container">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+            <span class="sr-only">Toggle navigation</span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+          <a class="navbar-brand" href="#">CrossRef DOI referral statistics</a>
+        </div>
+        <div class="collapse navbar-collapse">
+          <ul class="nav navbar-nav">
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="container">
+
+      <div class="row row-offcanvas row-offcanvas-right">
+       <p>Start and end date are required. You must supply a DOI or a domain, or both. Subdomain and TLD are optional, so you can enter <code>en.wikipedia.org</code>, <code>wikipedia.org</code> or just <code>wikipedia</code>. Note that these results are only DOI resolutions where the referral was given. It does not include all DOI resolutions and due to browser privacy settings may not be complete.</p>
+
+        <form role="form" name="query" method="get" action="/days">
+          <div class="form-group">
+            <label for="start-date">Start and end date</label>
+            <div class="row">
+              <div class="col-xs-2">
+                <input name="start-date" type="text" id="start-date" class="form-control">
+              </div>
+              <div class="col-xs-2">
+                <input name="end-date" type="text" id="end-date" class="form-control">
+              </div>
+
+            </div>
+
+          </div>
+          <div class="form-group">
+            <label for="doi">DOI</label>
+            <input type="text" class="form-control" id="doi" name="doi" placeholder="10.5555/12345678">
+          </div>
+          <div class="form-group">
+            <label for="domain">Domain</label>
+            <input type="text" class="form-control" id="domain" name="domain" placeholder="en.wikipedia.org">
+          </div>
+
+          <div class="form-group">
+            <label for="group-method">Group by</label>
+            <select class="form-control" id="group-method" name="group-method">
+                <option selected="selected" value="day">Day</option>
+                <option value="month">Month</option>
+                <option value="year">Year</option>
+            </select>
+
+            </input>
+          </div>
+
+          <button type="submit" id="submit" class="btn btn-default">Query</button>
+        </form>
+    </div>
+    <br />
+    <div class="row">
+        
+    <div id="info" class="alert alert-info"><p>From <strong id="start-date-value"></strong> to <strong id="end-date-value"></strong>. Total count: <strong id="count-value"></strong></p></div>
+    
+    <div id="error" class="alert alert-danger"><p class="text"></p></div>    
+    
+    <!-- <canvas id="chart" width="1170" height="400"></canvas> -->
+    
+    <style>
+        #chart_container {
+                position: relative;
+                font-family: Arial, Helvetica, sans-serif;
+        }
+        #chart {
+                position: relative;
+                left: 40px;
+        }
+        #y_axis {
+                position: absolute;
+                top: 0;
+                bottom: 0;
+                width: 40px;
+        }
+    </style>
+
+    <div id="chart_container" width=1170>
+            <div id="y_axis"></div>
+            <div id="chart" width=1170></div>
+    </div>
+
+    </div>
+
+
+      <hr>
+
+      <footer>
+        <p>&copy; CrossRef 2014</p>
+      </footer>
+
+    </div><!--/.container-->
+
+
+
+    <!-- Bootstrap core JavaScript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+    <script src="https://code.jquery.com/jquery-1.10.2.min.js"></script>
+    <script src="bootstrap/js/bootstrap.min.js"></script>
+    
+    <script src="http://code.jquery.com/jquery-1.9.1.js"></script>
+    <script src="http://code.jquery.com/ui/1.10.3/jquery-ui.js"></script>
+    <!--<script src="lib/Chart.js"></script>-->
+    <script src="lib/d3.v3.js"></script>
+    <script src="lib/d3.layout.min.js"></script>
+    <script src="lib/rickshaw.min.js"></script>
+
+    <script>
+      $(function() {
+        $("#start-date").datepicker();
+        $("#end-date").datepicker();
+        $("#start-date").datepicker("option", "dateFormat", "yy-mm-dd");
+        $("#end-date").datepicker("option", "dateFormat", "yy-mm-dd");
+
+        $("#info").hide(0);
+        $("#error").hide(0);
+
+        var data = [];
+
+        var graph;
+
+        // Don't render first time as there's no data.
+
+        $('form[name=query]').submit(function(){
+            $.get($(this).attr('action'), $(this).serialize(), function(jsonResult) {
+                
+                $("#error").hide(0);
+
+                $('#count-value').text(jsonResult.result['count']);
+
+                var days = jsonResult.result['days'];
+                if (days.length == 0) {
+                    $("#chart_container").hide()
+                    $("#info").hide(0);
+                } else {
+                    $("#info").show(0);
+                    $("#chart_container").show()
+
+                    // First and last returned.
+                    // This array will be returned in order from the API.
+                    $('#start-date-value').text(new Date(days[0].date));
+                    $('#end-date-value').text(new Date(days[days.length-1].date));
+
+                    data = days.map(function(point) { return({x: new Date(point.date).getTime()/1000, y: point.count});});
+
+                    // Construct on the first request where there is data.
+                    if (!graph) {
+                        graph = new Rickshaw.Graph( {
+                            element: document.querySelector("#chart"), 
+                            width: 1170, 
+                            height: 400,
+                            renderer: 'bar',
+                            series: [{
+                                color: 'steelblue',
+                                data: data
+                            }]
+                        });
+
+                        var x_axis = new Rickshaw.Graph.Axis.Time({graph: graph});
+
+                        var y_axis = new Rickshaw.Graph.Axis.Y( {
+                                graph: graph,
+                                orientation: 'left',
+                                tickFormat: Rickshaw.Fixtures.Number.formatKMBT,
+                                element: document.getElementById('y_axis'),
+                        } );
+                        graph.render();
+                    }
+
+                    // Update every time.
+                    graph.series[0].data = data;
+                    graph.update();
+                }
+                
+            }, 'json').error(function(resp) {
+                $("#error>p").text(resp.responseText);
+                $("#error").show()
+                $("#info").hide(0);
+            });
+            return false;
+        });
+      });
+  </script>
+
+  </body>
+</html>

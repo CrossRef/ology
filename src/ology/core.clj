@@ -230,6 +230,7 @@
   [dir-base]
   (info "Calculating frequencies for date bins.")
   (let [file-paths (filter #(.isFile %) (file-seq (clojure.java.io/file dir-base)))]
+    (info ">" file-paths)
     (doseq [the-file file-paths]
       (let [the-date (format/parse scatter-file-date-formatter (.getName the-file))]
         (info "Calculating for" the-date)
@@ -284,15 +285,16 @@ Raise an exception if any deletion fails unless silently is true."
           (.close log-file-reader)))
   (info "Finished verifying input files.")
   
-  ; Remove the temp directory.
-  (when (.exists (clojure.java.io/file temp-dir))
-      (delete-file-recursively temp-dir))
-  
-  (.mkdirs (clojure.java.io/file temp-dir))
-  
-  ; For each input file split into bins.
-  (doseq [input-file-path input-file-paths]
-    (scatter-file input-file-path temp-dir))
+  ; Don't change the temp file if there are no input files (assume we want to try re-processing).
+  (when (> (count input-file-paths) 0)
+    ; Remove and create the temp directory.
+    (when (.exists (clojure.java.io/file temp-dir))
+        (delete-file-recursively temp-dir))
+        (.mkdirs (clojure.java.io/file temp-dir))
+        
+        ; For each input file split into bins.
+        (doseq [input-file-path input-file-paths]
+          (scatter-file input-file-path temp-dir)))
   
   ; When the bins are filled, calculate and insert frequencies.
   (gather-files temp-dir)

@@ -1,29 +1,60 @@
-<p>This is the partial for view 2.</p>
-<p>
-  Showing of 'interpolate' filter:
-  {{ 'Current version is v%VERSION%.' | interpolate }}
-</p>
+<br /><br /><br />
+<h1>History</h1>
 
-<p>This is the partial for view 2.</p>
-<p>
-  Showing of 'interpolate' filter:
-  {{ 'Current version is v%VERSION%.' | interpolate }}
-</p>
+<div class="container">
 
-<p>This is the partial for view 2.</p>
-<p>
-  Showing of 'interpolate' filter:
-  {{ 'Current version is v%VERSION%.' | interpolate }}
-</p>
+  <div class="row row-offcanvas row-offcanvas-right">
+   <p>Start and end date are required. You must supply a DOI or a domain, or both. Subdomain and TLD are optional, so you can enter <code>en.wikipedia.org</code>, <code>wikipedia.org</code> or just <code>wikipedia</code>. Note that these results are only DOI resolutions where the referral was given. It does not include all DOI resolutions and due to browser privacy settings may not be complete.</p>
 
-<p>This is the partial for view 2.</p>
-<p>
-  Showing of 'interpolate' filter:
-  {{ 'Current version is v%VERSION%.' | interpolate }}
-</p>
+    <form role="form" name="query" method="get" action="/days">
+      <div class="form-group">
+        <label for="start-date">Start and end date</label>
+        <div class="row">
+          <div class="col-xs-2">
+            <input type="text" class="form-control" ng-model="startDate" data-date-format="yyyy-MM-dd"  data-date-type="string" data-max-date="{{endDate}}" data-autoclose="1" placeholder="From" bs-datepicker>
+          </div>
+          <div class="col-xs-2">
+            <input type="text" class="form-control" ng-model="endDate" data-date-format="yyyy-MM-dd"  data-date-type="string" data-min-date="{{startDate}}" data-autoclose="1" placeholder="Until" bs-datepicker>
+          </div>
+        </div>
+      </div>
 
-<p>This is the partial for view 2.</p>
-<p>
-  Showing of 'interpolate' filter:
-  {{ 'Current version is v%VERSION%.' | interpolate }}
-</p>
+      
+      <div class="form-group">
+        <label for="doi">DOI</label>
+        <input type="text" class="form-control" id="doi" ng-model="doi" placeholder="10.5555/12345678">
+      </div>
+      <div class="form-group">
+        <label for="domain">Domain</label>
+        <input type="text" class="form-control" id="domain" ng-model="domain" placeholder="en.wikipedia.org">
+      </div>
+
+      <div class="form-group">
+        <label for="group-method">Group by</label>
+        <select class="form-control" id="group-method" ng-model="groupMethod">
+            <option selected="selected" value="day">Day</option>
+            <option value="month">Month</option>
+            <option value="year">Year</option>
+        </select>
+
+        </input>
+      </div>
+
+    </form>
+
+    <button ng-click="fetch()" id="submit" class="btn btn-default">Query</button>
+
+  </div>
+</div>
+<br />
+<div id="info" ng-show="resultInfo!=null" class="alert alert-info">
+  <p>From <strong>{{resultInfo.startDate| date:'yyyy-MM-dd'}}</strong> to <strong>{{resultInfo.endDate| date:'yyyy-MM-dd'}}</strong>. Total count: <strong>{{resultInfo.count}}</strong></p>
+</div>
+
+<div id="error" ng-show="resultErrors!=null" class="alert alert-danger">
+ <p class="text">{{resultErrors}}</p>
+</div>
+
+<div class="container">
+  <div history-chart="data"></div>
+</div>

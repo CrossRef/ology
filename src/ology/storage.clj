@@ -171,7 +171,7 @@
         total-count (reduce + (map #(:count %1) response))
         
         ; Construct a date object for each day group.
-        the-response (map (fn [x] {:count (count-field x) :date (build-date-f (:_id x))}) response)
+        the-response (map (fn [x] {:count (count-field x) :date (build-date-f x)}) response)
         sorted-response (sort-by :date the-response)
         ]
     

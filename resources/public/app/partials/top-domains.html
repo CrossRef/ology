@@ -18,19 +18,25 @@
       </div>
      
       <div class="form-group">
-        <label for="group-method">Subdomain display</label>
-        <select class="form-control" id="group-method" name="group-method" ng-model="subdomainMethod">
-            <option selected="selected" value="none">None</option>
-            <option selected="selected" value="all">Subdomains</option>
-<!--             <option selected="selected" value="year">Subdomains per year</option>
-            <option selected="selected" value="month">Subdomains per month</option>
-            <option selected="selected" value="day">Subdomains per day</option> -->
-        </select>
+        
+        <div class="row">
+          
+          <div class="col-xs-2">
+          <label for="group-method">Subdomain display</label>
+            <select class="form-control" id="group-method" name="group-method" ng-model="subdomainMethod">
+              <option selected="selected" value="none">None</option>
+              <option selected="selected" value="all">Subdomains</option>
+  <!--             <option selected="selected" value="year">Subdomains per year</option>
+              <option selected="selected" value="month">Subdomains per month</option>
+              <option selected="selected" value="day">Subdomains per day</option> -->
+            </select>
 
-        </input>
+          </div>
+          <div class="col-xs-2">
+          <label for="page-number">Page</label>
+            <input type="text" class="form-control" id="page-number" ng-model="pageNumber" />
+        </div>
       </div>
-
-      
     </form>
 </div>
 

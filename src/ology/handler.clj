@@ -93,7 +93,7 @@
 
 
 (defroutes app-routes
-  (GET "/" [] (redirect "/index.html"))
+  (GET "/" [] (redirect "/app/index.html"))
   (GET "/heartbeat" [] heartbeat)
   (GET "/days" {params :params} (wrap-json-response days))
   (GET "/top-domains" {params :params} (wrap-json-response top-domains))

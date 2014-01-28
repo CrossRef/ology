@@ -63,7 +63,8 @@
        (.getHost (new URL (str "http://" url))))
     (catch Exception _ nil)))))
 
-(defn intern-or-nil [x] (when x (.intern ^String x)))
+; (defn intern-or-nil [x] (when x (.intern ^String x)))
+(defn intern-or-nil [x] x)
 
 (defn get-main-domain
   "Extract the main (effective top-level domain, 'main domain' and subdomains) from a domain name. 'www.xxx.test.com' -> ['www.xxx' 'test' 'com'] . Return reversed vector of components."

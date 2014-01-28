@@ -24,6 +24,24 @@
 ; Format for the file names of 'scatter' files.
 (def scatter-file-date-formatter (format/formatter "yyyy-MM-dd"))
 
+(defn delete-file
+  "Delete file f. Raise an exception if it fails unless silently is true."
+  [f & [silently]]
+  (or (.delete (clojure.java.io/file f))
+      silently
+      (throw (java.io.IOException. (str "Couldn't delete " f)))))
+
+
+(defn delete-file-recursively
+  "Delete file f. If it's a directory, recursively delete all its contents.
+Raise an exception if any deletion fails unless silently is true."
+  [f & [silently]]
+  (let [f (clojure.java.io/file f)]
+    (if (.isDirectory f)
+      (doseq [child (.listFiles f)]
+        (delete-file-recursively child silently)))
+    (delete-file f silently)))
+
 ;; Helper functions.
 (defn domain-parts
   "Split a domain into its parts. If the domain is malformed, an empty vector."
@@ -231,7 +249,6 @@
   [dir-base]
   (info "Calculating frequencies for date bins.")
   (let [file-paths (filter #(.isFile %) (file-seq (clojure.java.io/file dir-base)))]
-    (info ">" file-paths)
     (doseq [the-file file-paths]
       (let [the-date (format/parse scatter-file-date-formatter (.getName the-file))]
         (info "Calculating for" the-date)
@@ -252,25 +269,12 @@
             (info "Insert domain x DOI freqs")
             (storage/insert-domain-freqs domain-freqs the-date)
             (info "Done inserting for date " the-date)
-            ))))))
+            )))
+      ; Delete the file if this ran successfully. 
+      (info "Deleting" the-file)
+      (delete-file the-file)
 
-(defn delete-file
-  "Delete file f. Raise an exception if it fails unless silently is true."
-  [f & [silently]]
-  (or (.delete (clojure.java.io/file f))
-      silently
-      (throw (java.io.IOException. (str "Couldn't delete " f)))))
-
-
-(defn delete-file-recursively
-  "Delete file f. If it's a directory, recursively delete all its contents.
-Raise an exception if any deletion fails unless silently is true."
-  [f & [silently]]
-  (let [f (clojure.java.io/file f)]
-    (if (.isDirectory f)
-      (doseq [child (.listFiles f)]
-        (delete-file-recursively child silently)))
-    (delete-file f silently)))
+    )))
 
 (defn -main
   "Accept list of log file paths"

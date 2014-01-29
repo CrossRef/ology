@@ -180,13 +180,17 @@
 
 (defn query-top-domains
   "For a given time period return the top domains (i.e. combination of domain and TLD).
-  subdomain-rollup can be one of [nil :all :day :month :year], in which case the subdomains for each domain are found and then optionally grouped in date-buckets over the time period."
-  [start-date end-date subdomain-rollup page-number page-size] 
+  subdomain-rollup can be one of [nil :all :day :month :year], in which case the subdomains for each domain are found and then optionally grouped in date-buckets over the time period.
+  Group by domain.tld or just domain.
+  "
+  [start-date end-date subdomain-rollup ignore-tld page-number page-size] 
   (let [response (mc/aggregate aggregate-domain-table [
     {"$match" {date-field {"$gte" start-date "$lte" end-date}}}
    
     {"$group"
-     {"_id" {domain-field ($ domain-field) tld-field ($ tld-field)}
+     {"_id" (if ignore-tld
+              {domain-field ($ domain-field)}
+              {domain-field ($ domain-field) tld-field ($ tld-field)})
       "count" {"$sum" ($ count-field)}
       }}
     ; Exclude small counts. Arbitrary number.
@@ -198,9 +202,9 @@
     {"$limit" (* (inc page-number) page-size)}
     {"$skip" (- (* (inc page-number) page-size) page-size)}
   ])
+        
     response-formatted (map (fn [entry] {:full-domain (str (domain-field (:_id entry)) "." (tld-field (:_id entry))) :count (:count entry) domain-field (domain-field (:_id entry)) tld-field (tld-field (:_id entry))}) response)    
   ]
-    
     (if (not subdomain-rollup)
       response-formatted 
       (map (fn [entry]
@@ -247,12 +251,12 @@
             )
             subdomain-response 
         (mc/aggregate aggregate-domain-table [
-          {"$match" {
-            date-field {"$gte" start-date "$lte" end-date} 
-            domain-field (domain-field entry)
-            tld-field (tld-field entry)
-          }}
-
+          {"$match" (if ignore-tld
+            {date-field {"$gte" start-date "$lte" end-date} 
+             domain-field (domain-field entry)}
+            {date-field {"$gte" start-date "$lte" end-date} 
+             domain-field (domain-field entry)
+             tld-field (tld-field entry)})}
           
           ; Group aggregation pipeline function.
           rollup-group-q

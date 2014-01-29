@@ -13,9 +13,15 @@ app.controller('TopDomainsController', ["$scope", "$http", "$resource", function
     $scope.endDate = "2014-01-01";
     $scope.pageNumber = 1;
     $scope.subdomainMethod = "none";
+    $scope.ignoreTld = "true";
 
     $scope.fetch = function() {
-        $scope.data = TopDomainsResource.query({"start-date": $scope.startDate, "end-date": $scope.endDate, "page": $scope.pageNumber, "subdomain-rollup": $scope.subdomainMethod});
+        $scope.data = TopDomainsResource.query({
+            "start-date": $scope.startDate,
+            "end-date": $scope.endDate,
+            "page": $scope.pageNumber,
+            "subdomain-rollup": $scope.subdomainMethod,
+            "ignore-tld": $scope.ignoreTld});
     };
 
     // Reset page number when other values change.
@@ -37,7 +43,11 @@ app.controller('TopDomainsController', ["$scope", "$http", "$resource", function
         $scope.pageNumber = 1;
         $scope.fetch();
     });
-    
+
+    $scope.$watch("ignoreTld", function() {
+        $scope.pageNumber = 1;
+        $scope.fetch();
+    });
 }]);
 
 app.controller('HistoryController', ["$scope", "$http", "$resource", function($scope, $http, $resource) {

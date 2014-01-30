@@ -50,6 +50,23 @@ app.controller('TopDomainsController', ["$scope", "$http", "$resource", function
     });
 }]);
 
+function buildUrl(base, pairs) {
+    var url = base + "?";
+
+    for (var i = 0; i < pairs.length; i++) {
+        if (pairs[i][1]) {
+
+            if (i > 0) {
+                url += "&"
+            }
+
+            url += encodeURIComponent(pairs[i][0]) + "=" + encodeURIComponent(pairs[i][1]);
+        }
+    }
+        
+    return url;            
+}
+
 app.controller('HistoryController', ["$scope", "$http", "$resource", function($scope, $http, $resource) {
     var DaysResource = $resource('/days', {}, {'query': {method: 'GET', isArray: false}});
 
@@ -57,11 +74,26 @@ app.controller('HistoryController', ["$scope", "$http", "$resource", function($s
     $scope.endDate = "2014-01-01";
     $scope.groupMethod = "month";
     $scope.data = null;
-    
+    $scope.csvUrl = null;
+
+    function updateCsvUrl() {
+        // Looks like it's impossible to get the Angular Route's URL constructor.
+        $scope.csvUrl = buildUrl("/days-csv", [
+            ["start-date", $scope.startDate],
+            ["end-date", $scope.endDate],
+            ["domain", $scope.domain],
+            ["doi", $scope.doi],
+            ["group-method", $scope.groupMethod]]);
+    }
+
+    $scope.$watch("startDate", updateCsvUrl)
+    $scope.$watch("endDate", updateCsvUrl)
+    $scope.$watch("domain", updateCsvUrl)
+    $scope.$watch("doi", updateCsvUrl)
+    $scope.$watch("group-method", updateCsvUrl)
 
     $scope.fetch = function() {
         DaysResource.query({"start-date": $scope.startDate, "end-date": $scope.endDate, "domain": $scope.domain, "doi": $scope.doi, "group-method": $scope.groupMethod}, function(response) {
-            
             var days = response.result.days;
 
             // Turn into chart-friendly.

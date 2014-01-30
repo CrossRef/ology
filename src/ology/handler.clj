@@ -1,6 +1,7 @@
 (ns ology.handler
   (:use compojure.core)
   (:require [ology.core :as core])
+  (:require [clojure.string])
   (:require [ology.storage :as storage])
   (:require [compojure.handler :as handler]
             [compojure.route :as route])
@@ -46,7 +47,7 @@
         result (remove nil? ((apply juxt validation-rules)))]
     result))
 
-(defn days 
+(defn days-full
   [params]
   (try
     (let [query (params :query-params)
@@ -72,6 +73,34 @@
           :result (storage/query-days the-query group-method)}}))
     (catch IllegalArgumentException ex {:status 400 :headers {"Content-Type" "application/json"} :body (str "Date: " (.getMessage ex))})))
 
+(defn to-csv
+  "Turn vector of simple maps into CSV. Columns must be provided for column order as vector of pairs of [symbol header-name]."
+  [lines columns]
+  (let [
+    line-values (map (fn [line] (apply vector (map #(str (get line %)) (map first columns)))) lines)
+    emit-values (cons (map second columns) line-values)
+    csv-lines (apply vector (map #(clojure.string/join "," %) emit-values))
+    result (clojure.string/join "\n" csv-lines)]
+    result))
+
+(defn days-csv
+  [params]
+  (try
+    (let [query (params :query-params)
+          group-method (get query "group-method")
+          start-date-input (get query "start-date")
+          end-date-input (get query "end-date")
+          start-date (when start-date-input (parse date-formatter start-date-input))
+          end-date (when end-date-input (parse date-formatter end-date-input))
+          domain (get query "domain")
+          doi (get query "doi")
+          the-query (construct-query start-date end-date domain doi)
+          validation (validate-days-query the-query)]
+      (if (not (empty? validation))
+        {:status 400 :headers {"Content-Type" "text/plain"} :body (clojure.string/join "\n" validation)}
+        {:status 200 :headers {"Content-Type" "text/plain"}
+         :body (to-csv (:days (storage/query-days the-query group-method)) [[:date "Date"] [:count "Count"]])}))
+    (catch IllegalArgumentException ex {:status 400 :headers {"Content-Type" "text/plain"} :body (str "Date: " (.getMessage ex))})))
 
 (defn top-domains 
   [params]
@@ -96,7 +125,8 @@
 (defroutes app-routes
   (GET "/" [] (redirect "/app/index.html"))
   (GET "/heartbeat" [] heartbeat)
-  (GET "/days" {params :params} (wrap-json-response days))
+  (GET "/days" {params :params} (wrap-json-response days-full))
+  (GET "/days-csv" {params :params} days-csv)
   (GET "/top-domains" {params :params} (wrap-json-response top-domains))
   (route/resources "/")  )
 

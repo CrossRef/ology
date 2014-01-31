@@ -9,6 +9,7 @@
       [monger.collection :as mc])
     (:require monger.joda-time)
     (:require [clj-time.core :as time])
+    (:require [clj-http.client :as client])
     (:use [clojure.tools.logging :only (info error)]))
 
 (let [^MongoOptions opts (mg/mongo-options :threads-allowed-to-block-for-connection-multiplier 300 :keepGoing true)
@@ -101,6 +102,39 @@
 (mc/drop-indexes aggregate-doi-domain-table)
 (mc/drop-indexes aggregate-doi-table)
 (mc/drop-indexes aggregate-domain-table)
+
+
+(def doi-registration-authority-service-url "http://192.168.1.14:8000/ra/")
+
+(defn lookup-ra
+  "Talk to the RA webservice, return status as one of :crossref :other-ra :does-not-exist :invalid :not-available"
+  [doi]
+  (try
+      (let
+        [response (client/get (str doi-registration-authority-service-url doi) {:accept :json :as :json})]
+        (if (= (-> response :body first :status) "Invalid DOI")
+          :invalid
+          (case (-> response :body first :RA)
+            nil :not-available
+            "CrossRef" :crossref
+            "DOI does not exist" :does-not-exist
+            :other-ra
+          )))
+        (catch Exception _ :not-available)))
+
+
+(defn ra-stats [query]
+  (let [start-date (:start-date query)
+        end-date (:end-date query)
+        domain (:domain query)
+        tld (:tld query)
+        query (mc/find aggregate-doi-domain-table {date-field {"$gte" start-date "$lte" end-date} domain-field domain tld-field tld} [doi-field "count"])
+        stats (reduce (fn [[crossref non-crossref] entry]
+         (if (= :crossref (lookup-ra (get entry "doi")))
+         [(+ crossref (get entry "count")) non-crossref]
+         [non-crossref (+ non-crossref (get entry "count"))]))
+         [0 0] query)]
+    {:crossref (get stats 0) :non-crossref (get stats 1)}))
 
 (defn query-days
   "For a query, return a vector of the count per day and the total for the whole period. Group by argument should be one of [:day :month :year]"

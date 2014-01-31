@@ -73,6 +73,42 @@
           :result (storage/query-days the-query group-method)}}))
     (catch IllegalArgumentException ex {:status 400 :headers {"Content-Type" "application/json"} :body (str "Date: " (.getMessage ex))})))
 
+
+
+(defn validate-ra-stats 
+  "Validate query. Return empty vector on success or list of error strings" 
+  [query]
+  
+  (let [got-domain (not (empty? (:domain query)))
+        got-start (not (nil? (:start-date query)))
+        got-end (not (nil? (:end-date query)))
+        
+        validation-rules [
+          (fn domain [] (when (not got-domain) "Domain must be supplied."))
+          (fn start-end [] (when (or
+            (not got-start)
+            (not got-end)) "Both start and end date must be supplied."))]
+        result (remove nil? ((apply juxt validation-rules)))]
+    result))
+
+
+(defn ra-stats
+  [params]
+  (try
+    (let [query (:query-params params)
+          start-date-input (get query "start-date")
+          end-date-input (get query "end-date")
+          start-date (when start-date-input (parse date-formatter start-date-input))
+          end-date (when end-date-input (parse date-formatter end-date-input))
+          domain (get query "domain")
+          the-query (construct-query start-date end-date domain nil)
+          validation (validate-ra-stats the-query)]
+      (if (not (empty? validation))
+        {:status 400 :headers {"Content-Type" "application/json"} :body (clojure.string/join "\n" validation)}
+        {:status 200 :headers {"Content-Type" "application/json"} :body {
+          :result (storage/ra-stats the-query)}}))
+    (catch IllegalArgumentException ex {:status 400 :headers {"Content-Type" "application/json"} :body (str "Date: " (.getMessage ex))})))
+
 (defn to-csv
   "Turn vector of simple maps into CSV. Columns must be provided for column order as vector of pairs of [symbol header-name]."
   [lines columns]
@@ -128,6 +164,7 @@
   (GET "/days" {params :params} (wrap-json-response days-full))
   (GET "/days-csv" {params :params} days-csv)
   (GET "/top-domains" {params :params} (wrap-json-response top-domains))
+  (GET "/ra-stats" {params :params} (wrap-json-response ra-stats))
   (route/resources "/")  )
 
 (def app

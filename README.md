@@ -18,6 +18,22 @@ or
 
     java -jar /path/to/jar.jar «path to temporary directory» «path to log file»*
 
+
+Indexes are dropped prior to insertion. Run this in the mongo shell after:
+
+    db['aggregated-doi-day'].ensureIndex({ "d": 1, "o" : 1}); 
+    db['aggregated-domain-doi-day'].ensureIndex({ "d": 1, "o" : 1, "n": 1 });
+    db['aggregated-domain-doi-day'].ensureIndex({ "d": 1, "o" : 1 }); 
+    db['aggregated-domain-doi-day'].ensureIndex({ "d": 1, "n": 1 }); 
+    db['aggregated-domain-day'].ensureIndex({ "d": 1, "n" : 1});
+
+    db['aggregated-doi-month'].ensureIndex({ "d": 1, "o" : 1}); 
+    db['aggregated-domain-doi-month'].ensureIndex({ "d": 1, "o" : 1, "n": 1 });
+    db['aggregated-domain-doi-month'].ensureIndex({ "d": 1, "o" : 1 }); 
+    db['aggregated-domain-doi-month'].ensureIndex({ "d": 1, "n": 1 }); 
+    db['aggregated-domain-month'].ensureIndex({ "d": 1, "n" : 1});
+
+
 ### Run server for querying
 
     lein ring server-headless

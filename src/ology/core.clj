@@ -23,6 +23,15 @@
 (def special-url-filter 
   (or (env :url-filter) nil))
 
+; For bigger-than-memory job, bin DOIs by this many. Used in bin-doi
+(def partition-bin-size 10)
+
+(defn bin-doi
+  "Return the bin number for a DOI"
+  [doi]
+  ; It's just a checksum.
+  (mod (reduce + (map int doi)) partition-bin-size))
+
 (if special-url-filter (info "URL Filter:" special-url-filter ))
 
 ; Formatters for reading log file.
@@ -261,26 +270,32 @@ Raise an exception if any deletion fails unless silently is true."
     (doseq [the-file file-paths]
       (let [the-date (format/parse scatter-file-date-formatter (.getName the-file))]
         (info "Calculating for" the-date)
-        (with-open [reader (clojure.java.io/reader the-file)]
-          (let [lines (line-seq reader)
-                parsed-lines (map clojure.edn/read-string lines)
-                interned-parsed-lines (map (fn [[doi [subdomain domain tld]]] [(intern-or-nil doi) [(intern-or-nil subdomain) (intern-or-nil domain) (intern-or-nil tld)]]) parsed-lines)
-                
-                ; Each line is [doi [subdomain domain doi]], in the right format for frequencies.
-                domain-doi-freqs (frequencies interned-parsed-lines) 
-                doi-freqs (frequencies (map first interned-parsed-lines)) 
-                domain-freqs (frequencies (map second interned-parsed-lines))]
-            
-            (info "Insert domain freqs")
-            (storage/insert-domain-doi-freqs domain-doi-freqs the-date period-type)
-            
-            (info "Insert DOI freqs")
-            (storage/insert-doi-freqs doi-freqs the-date period-type)
-            
-            (info "Insert domain x DOI freqs")
-            (storage/insert-domain-freqs domain-freqs the-date period-type)
-            
-            (info "Done inserting for date " the-date))))
+        
+        ; Parition by DOI bin to reduce amount in memory at once.
+        (doseq [bin-number (range partition-bin-size)]
+          (info "Bin number" bin-number)
+          (with-open [reader (clojure.java.io/reader the-file)]
+            (let [lines (line-seq reader)
+                  parsed-lines (map clojure.edn/read-string lines)
+                  
+                  ; Bin by DOI
+                  this-bin-lines (filter #(= bin-number (bin-doi (first %1))) parsed-lines)
+                                    
+                  ; Each line is [doi [subdomain domain doi]], in the right format for frequencies.
+                  domain-doi-freqs (frequencies this-bin-lines) 
+                  doi-freqs (frequencies (map first this-bin-lines)) 
+                  domain-freqs (frequencies (map second this-bin-lines))]
+              
+              (info "Insert domain freqs")
+              (storage/insert-domain-doi-freqs domain-doi-freqs the-date period-type)
+              
+              (info "Insert DOI freqs")
+              (storage/insert-doi-freqs doi-freqs the-date period-type)
+              
+              (info "Insert domain x DOI freqs")
+              (storage/insert-domain-freqs domain-freqs the-date period-type)
+              
+              (info "Done inserting for date " the-date)))))
       
       ; Delete the file if this ran successfully. 
       (info "Deleting" the-file)

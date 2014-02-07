@@ -26,11 +26,11 @@
 ; For bigger-than-memory job, bin DOIs by this many. Used in bin-doi
 (def partition-bin-size 10)
 
-(defn bin-doi
-  "Return the bin number for a DOI"
-  [doi]
+(defn bin-for-value
+  "Return the bin number for a given string (doi or domain)"
+  [^String value]
   ; It's just a checksum.
-  (mod (reduce + (map int doi)) partition-bin-size))
+  (mod (reduce + (map int value)) partition-bin-size))
 
 (if special-url-filter (info "URL Filter:" special-url-filter ))
 
@@ -271,32 +271,58 @@ Raise an exception if any deletion fails unless silently is true."
       (let [the-date (format/parse scatter-file-date-formatter (.getName the-file))]
         (info "Calculating for" the-date)
         
-        ; Parition by DOI bin to reduce amount in memory at once.
-        (doseq [bin-number (range partition-bin-size)]
-          (info "Bin number" bin-number)
+        ; Partition by checksum for the dimensions (doi, doi x domain, domain) so each partition can fit in memory.
+        (doseq [doi-bin-number (range partition-bin-size)]
+          (info "DOI bin number" doi-bin-number)
           (with-open [reader (clojure.java.io/reader the-file)]
             (let [lines (line-seq reader)
                   parsed-lines (map clojure.edn/read-string lines)
                   
                   ; Bin by DOI
-                  this-bin-lines (filter #(= bin-number (bin-doi (first %1))) parsed-lines)
+                  this-bin-lines (filter #(= doi-bin-number (bin-for-value (first %1))) parsed-lines)
                                     
                   ; Each line is [doi [subdomain domain doi]], in the right format for frequencies.
-                  domain-doi-freqs (frequencies this-bin-lines) 
+                  doi-freqs (frequencies (map first this-bin-lines)) ]
+              
+              (info "Insert DOI freqs")
+              (storage/insert-doi-freqs doi-freqs the-date period-type)
+              (info "Done insertibg DOI freqs for bin"))))
+
+        (doseq [domain-bin-number (range partition-bin-size)]
+          (info "Domain bin number" domain-bin-number)
+          (with-open [reader (clojure.java.io/reader the-file)]
+            (let [lines (line-seq reader)
+                  parsed-lines (map clojure.edn/read-string lines)
+                  
+                  ; Bin by domain triplet.
+                  this-bin-lines (filter #(= domain-bin-number (bin-for-value (str (second %1)))) parsed-lines)
+                                    
+                  ; Each line is [doi [subdomain domain doi]], in the right format for frequencies.
                   doi-freqs (frequencies (map first this-bin-lines)) 
                   domain-freqs (frequencies (map second this-bin-lines))]
               
               (info "Insert domain freqs")
+              (storage/insert-domain-freqs domain-freqs the-date period-type)
+              (info "Done inserting domain freqs for bin"))))
+
+        (doseq [domain-doi-bin-number (range partition-bin-size)]
+          (info "Domain x DOI bin number" domain-doi-bin-number)
+          (with-open [reader (clojure.java.io/reader the-file)]
+            (let [lines (line-seq reader)
+                  parsed-lines (map clojure.edn/read-string lines)
+                  
+                  ; Bin by the whole line.
+                  this-bin-lines (filter #(= domain-doi-bin-number (bin-for-value (str %1))) parsed-lines)
+                                    
+                  ; Each line is [doi [subdomain domain doi]], in the right format for frequencies.
+                  domain-doi-freqs (frequencies this-bin-lines)]
+              
+              (info "Insert domain freqs")
               (storage/insert-domain-doi-freqs domain-doi-freqs the-date period-type)
               
-              (info "Insert DOI freqs")
-              (storage/insert-doi-freqs doi-freqs the-date period-type)
-              
-              (info "Insert domain x DOI freqs")
-              (storage/insert-domain-freqs domain-freqs the-date period-type)
-              
-              (info "Done inserting for date " the-date)))))
+              (info "Done inserting Domain x DOI for bin")))))
       
+            
       ; Delete the file if this ran successfully. 
       (info "Deleting" the-file)
       (delete-file the-file)

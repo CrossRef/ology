@@ -269,62 +269,54 @@ Raise an exception if any deletion fails unless silently is true."
         (info "Calculating for" the-date)
         
         ; Partition by checksum for the dimensions (doi, doi x domain, domain) so each partition can fit in memory.
-        (doseq [doi-bin-number (range bin-size)]
-          (info "DOI bin number" doi-bin-number)
+        (doseq [bin-number (range bin-size)]
+          (info "Bin number" bin-number "for DOI")
           (with-open [reader (clojure.java.io/reader the-file)]
-            (let [lines (line-seq reader)
-                  parsed-lines (map clojure.edn/read-string lines)
-                  
-                  ; Bin by DOI
-                  this-bin-lines (filter #(= doi-bin-number (bin-for-value (first %1) bin-size)) parsed-lines)
-                                    
-                  ; Each line is [doi [subdomain domain doi]], in the right format for frequencies.
-                  doi-freqs (frequencies (map first this-bin-lines)) ]
+              (let [doi-freqs (->> reader
+              line-seq
+              (map clojure.edn/read-string)
+              ; Pick only the DOI.
+              (map first)
+              (filter #(= bin-number (bin-for-value % bin-size)))
+              frequencies)]
               
               (info "Insert DOI freqs")
               (storage/insert-doi-freqs doi-freqs the-date period-type)
-              (info "Done insertibg DOI freqs for bin"))))
-
-        (doseq [domain-bin-number (range bin-size)]
-          (info "Domain bin number" domain-bin-number)
+              (info "Done inserting DOI freqs for bin"))))
+        
+        (doseq [bin-number (range bin-size)]
+          (info "Bin number" bin-number "for Domain")
           (with-open [reader (clojure.java.io/reader the-file)]
-            (let [lines (line-seq reader)
-                  parsed-lines (map clojure.edn/read-string lines)
-                  
-                  ; Bin by domain triplet.
-                  this-bin-lines (filter #(= domain-bin-number (bin-for-value (str (second %1)) bin-size)) parsed-lines)
-                                    
-                  ; Each line is [doi [subdomain domain doi]], in the right format for frequencies.
-                  doi-freqs (frequencies (map first this-bin-lines)) 
-                  domain-freqs (frequencies (map second this-bin-lines))]
+            (let [domain-freqs (->> reader
+              line-seq
+              (map clojure.edn/read-string)
+              ; Take only the domain (a 3 vector).
+              (map second)
+              ; Join the vector into a string for binning.
+              (filter #(= bin-number (bin-for-value (str %) bin-size)))
+              frequencies)]
               
-              (info "Insert domain freqs")
-              (storage/insert-domain-freqs domain-freqs the-date period-type)
-              (info "Done inserting domain freqs for bin"))))
-
-        (doseq [domain-doi-bin-number (range bin-size)]
-          (info "Domain x DOI bin number" domain-doi-bin-number)
+              (info "Insert Domain freqs")
+              (storage/insert-doi-freqs domain-freqs the-date period-type)
+              (info "Done inserting Domain freqs for bin"))))
+        
+        (doseq [bin-number (range bin-size)]
+          (info "Bin number" bin-number "for DOI and Domain")
           (with-open [reader (clojure.java.io/reader the-file)]
-            (let [lines (line-seq reader)
-                  parsed-lines (map clojure.edn/read-string lines)
-                  
-                  ; Bin by the whole line.
-                  this-bin-lines (filter #(= domain-doi-bin-number (bin-for-value (str %1) bin-size)) parsed-lines)
-                                    
-                  ; Each line is [doi [subdomain domain doi]], in the right format for frequencies.
-                  domain-doi-freqs (frequencies this-bin-lines)]
+            (let [doi-domain-freqs (->> reader
+              line-seq
+              (map clojure.edn/read-string)
+              ; Pass through whole structure.
+              (filter #(= bin-number (bin-for-value (str %) bin-size)))
+              frequencies)]
               
-              (info "Insert domain freqs")
-              (storage/insert-domain-doi-freqs domain-doi-freqs the-date period-type)
-              
-              (info "Done inserting Domain x DOI for bin")))))
-      
+              (info "Insert DOI and Domain freqs")
+              (storage/insert-domain-doi-freqs doi-domain-freqs the-date period-type)
+              (info "Done inserting DOI and Domain freqs for bin")))))
             
       ; Delete the file if this ran successfully. 
       (info "Deleting" the-file)
-      (delete-file the-file)
-
-    )))
+      (delete-file the-file))))
 
 (defn -main
   "Accept list of log file paths"
@@ -361,5 +353,5 @@ Raise an exception if any deletion fails unless silently is true."
     ; When the bins are filled, calculate and insert frequencies.
     ; Single bin for per-day (known to fit in RAM comfortably), more bins per-month.
     (gather-files temp-dir-day :day 1)
-    (gather-files temp-dir-month :month 10))
+    (gather-files temp-dir-month :month 30))
 )

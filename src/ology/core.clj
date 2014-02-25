@@ -2,6 +2,7 @@
     (:gen-class)
     (:require [clj-http.client :as client])
     (:require [clojure.edn :as edn])
+    (:require [clojure.string :as string])
     (:require [clojure.java.io :as io])
     (:require [clj-time.format :refer [parse formatter]])
     (:require [ology.storage :as storage])
@@ -220,13 +221,38 @@ Raise an exception if any deletion fails unless silently is true."
 (defn later-date [^org.joda.time.DateTime a ^org.joda.time.DateTime b] (if (nil? a) b (if (time/after? a b) a b)))
 (defn earlier-date [^org.joda.time.DateTime a ^org.joda.time.DateTime b] (if (nil? a) b (if (time/before? a b) a b)))
 
+(def types [:doi :domain :doi-domain])
+(def doi-type-index 0)
+(def domain-type-index 1)
+(def doi-domain-type-index 2)
+
+(defn open-bin-files
+  "Return vector of vectors binned files for date, indexed by type [doi, domain-doi, domain] then bin number"
+  [the-date num-bins dir-base]
+  
+  (let [bin-numbers (range num-bins)
+        bin-file-names (map #(str (format/unparse scatter-file-date-formatter the-date) "~" %) bin-numbers)
+        new-output-files (map (fn [type] (map (fn [bin-name] (clojure.java.io/writer (str dir-base "/" bin-name "~" (name type)) :append true)) bin-file-names)) types)]
+    (apply vector new-output-files)))
+
+(defn close-bin-files
+  [bin-files]
+  (doseq [file (flatten bin-files)] (.close file)))
+
+(defn get-output-file
+  "From a structure of current output files (produced from open-bin-files) return the correct one for the given line and type."
+  [output-files line type-index num-bins]
+  (let [for-type (nth output-files type-index)
+        bin-number (bin-for-value (apply str line) num-bins)]
+       (nth for-type bin-number)))
+
 (defn scatter-file
   "Take a filename, parse and bin entries by day in a file-per-day or file-per-month (depending on period-type) in dir-base."
-  [input-file-path dir-base period-type]
+  [input-file-path dir-base period-type num-bins]
   (info "Preprocessing input file" input-file-path)
   (with-open [log-file-reader (clojure.java.io/reader (clojure.java.io/file input-file-path))]
       (loop [lines (remove nil? (map #(parse-line % period-type) (line-seq log-file-reader)))
-             current-output-file nil
+             current-output-files nil
              current-output-file-date nil
              ]
         (let [line (first lines)
@@ -236,28 +262,42 @@ Raise an exception if any deletion fails unless silently is true."
         (if (= line-date current-output-file-date)
             ;; If we're in a run of the same date, write out.
             (do 
-              (.write current-output-file (pr-str line-doi-domain))
-              (.write current-output-file "\n")
+                    
+              ; DOI
+              (.write (get-output-file current-output-files (first line-doi-domain) doi-type-index num-bins) (str line-doi-domain \newline))
+              
+              ; Domain
+              (.write (get-output-file current-output-files (second line-doi-domain) domain-type-index num-bins) (str line-doi-domain \newline))
+
+              ; Both
+              (.write (get-output-file current-output-files line-doi-domain doi-domain-type-index num-bins) (str line-doi-domain \newline))
+            
               (if
-                (not (empty? the-rest)) (recur the-rest current-output-file current-output-file-date)
-                (.close current-output-file)
+                (not (empty? the-rest)) (recur the-rest current-output-files current-output-file-date)
+                (close-bin-files current-output-files)
               )
             )
             
             ;; Otherwise close the old file (if there is one) and open a new one.
             (do
-              (when current-output-file
+              (when current-output-files
                 (info "Closed" current-output-file-date)
-                (.close current-output-file))
-              (let [filename (format/unparse scatter-file-date-formatter line-date)
-                    new-output-file (clojure.java.io/writer (str dir-base "/" filename) :append true)]
-                    (info "Opened" filename)
-                    (.write new-output-file (pr-str line-doi-domain))
-                    (.write new-output-file "\n")
+                (close-bin-files current-output-files))
+              (let [new-output-files (open-bin-files line-date num-bins dir-base)]
+                    
+                    ; DOI
+                    (.write (get-output-file new-output-files (first line-doi-domain) doi-type-index num-bins) (str line-doi-domain \newline))
+                    
+                    ; Domain
+                    (.write (get-output-file new-output-files (second line-doi-domain) domain-type-index num-bins) (str line-doi-domain \newline))
+
+                    ; Both
+                    (.write (get-output-file new-output-files line-doi-domain doi-domain-type-index num-bins) (str line-doi-domain \newline))
+
                     (if 
                       (not (empty? the-rest))
-                      (recur the-rest new-output-file line-date)
-                      (.close current-output-file)))))))))
+                      (recur the-rest new-output-files line-date)
+                      (close-bin-files new-output-files)))))))))
 
 (defn gather-files
   "For the preprocessed files generated by scatter-file, calculate frequencies and insert into Mongo."
@@ -265,58 +305,52 @@ Raise an exception if any deletion fails unless silently is true."
   (info "Calculating frequencies for date bins.")
   (let [file-paths (filter #(.isFile %) (file-seq (clojure.java.io/file dir-base)))]
     (doseq [the-file file-paths]
-      (let [the-date (format/parse scatter-file-date-formatter (.getName the-file))]
-        (info "Calculating for" the-date)
+      (let [filename (.getName the-file)
+            [date-part bin-part type-part] (string/split filename #"~")
+            the-date (format/parse scatter-file-date-formatter date-part)]
+        (info "Calculating for" the-date "bin" bin-part "type" type-part)
         
-        ; Partition by checksum for the dimensions (doi, doi x domain, domain) so each partition can fit in memory.
-        (doseq [bin-number (range bin-size)]
-          (info "Bin number" bin-number "for DOI")
+        
+        (when (= type-part "doi")
           (with-open [reader (clojure.java.io/reader the-file)]
-              (let [doi-freqs (->> reader
-              line-seq
-              (map clojure.edn/read-string)
-              ; Pick only the DOI.
-              (map first)
-              (filter #(= bin-number (bin-for-value % bin-size)))
-              frequencies)]
+            (let [doi-freqs (->> reader
+            line-seq
+            (map clojure.edn/read-string)
+            ; Pick only the DOI.
+            (map first)
+            frequencies)]
               
-              (info "Insert DOI freqs")
-              (storage/insert-doi-freqs doi-freqs the-date period-type)
-              (info "Done inserting DOI freqs for bin"))))
-        
-        (doseq [bin-number (range bin-size)]
-          (info "Bin number" bin-number "for Domain")
+            (info "Insert DOI freqs")
+            (storage/insert-doi-freqs doi-freqs the-date period-type)
+            (info "Done inserting DOI freqs for bin"))))
+
+        (when (= type-part "domain")
           (with-open [reader (clojure.java.io/reader the-file)]
             (let [domain-freqs (->> reader
-              line-seq
-              (map clojure.edn/read-string)
-              ; Take only the domain (a 3 vector).
-              (map second)
-              ; Join the vector into a string for binning.
-              (filter #(= bin-number (bin-for-value (str %) bin-size)))
-              frequencies)]
+            line-seq
+            (map clojure.edn/read-string)
+            ; Pick only the DOI.
+            (map second)
+            frequencies)]
               
-              (info "Insert Domain freqs")
-              (storage/insert-doi-freqs domain-freqs the-date period-type)
-              (info "Done inserting Domain freqs for bin"))))
-        
-        (doseq [bin-number (range bin-size)]
-          (info "Bin number" bin-number "for DOI and Domain")
+            (info "Insert Domain freqs")
+            (storage/insert-domain-freqs domain-freqs the-date period-type)
+            (info "Done inserting Domain freqs for bin"))))
+
+        (when (= type-part "doi-domain")
           (with-open [reader (clojure.java.io/reader the-file)]
             (let [doi-domain-freqs (->> reader
-              line-seq
-              (map clojure.edn/read-string)
-              ; Pass through whole structure.
-              (filter #(= bin-number (bin-for-value (str %) bin-size)))
-              frequencies)]
+            line-seq
+            (map clojure.edn/read-string)
+            ; Take both
+            frequencies)]
               
-              (info "Insert DOI and Domain freqs")
-              (storage/insert-domain-doi-freqs doi-domain-freqs the-date period-type)
-              (info "Done inserting DOI and Domain freqs for bin")))))
-            
-      ; Delete the file if this ran successfully. 
-      (info "Deleting" the-file)
-      (delete-file the-file))))
+            (info "Insert DOI Domain freqs")
+            (storage/insert-domain-doi-freqs doi-domain-freqs the-date period-type)
+            (info "Done inserting DOI Domain freqs for bin"))))
+        
+        (info "Deleting" the-file)
+        (delete-file the-file)))))
 
 (defn -main
   "Accept list of log file paths"
@@ -334,24 +368,29 @@ Raise an exception if any deletion fails unless silently is true."
   
   (let [temp-dir-day (str temp-dir "/day")
         temp-dir-month (str temp-dir "/month")]
+
     ; Don't change the temp file if there are no input files (assume we want to try re-processing).
     (when (> (count input-file-paths) 0)
+
       ; Remove and create the temp directories.
       (when (.exists (clojure.java.io/file temp-dir-day))
+          (info "Removing old files" temp-dir-day)
           (delete-file-recursively temp-dir-day))
           (.mkdirs (clojure.java.io/file temp-dir-day))
           
       (when (.exists (clojure.java.io/file temp-dir-month))
+          (info "Removing old files" temp-dir-month)
           (delete-file-recursively temp-dir-month))
           (.mkdirs (clojure.java.io/file temp-dir-month))
           
           ; For each input file split into bins.
           (doseq [input-file-path input-file-paths]
-            (scatter-file input-file-path temp-dir-day :day)
-            (scatter-file input-file-path temp-dir-month :month)))
+            (scatter-file input-file-path temp-dir-day :day 1)
+            (scatter-file input-file-path temp-dir-month :month 30)))
     
     ; When the bins are filled, calculate and insert frequencies.
     ; Single bin for per-day (known to fit in RAM comfortably), more bins per-month.
     (gather-files temp-dir-day :day 1)
-    (gather-files temp-dir-month :month 30))
+    (gather-files temp-dir-month :month 30)
+    )
 )

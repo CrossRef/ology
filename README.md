@@ -21,18 +21,29 @@ or
 
 Indexes are dropped prior to insertion. Run this in the mongo shell after:
 
-    db['aggregated-doi-day'].ensureIndex({ "d": 1, "o" : 1}); 
-    db['aggregated-domain-doi-day'].ensureIndex({ "d": 1, "o" : 1, "n": 1 });
-    db['aggregated-domain-doi-day'].ensureIndex({ "d": 1, "o" : 1 }); 
-    db['aggregated-domain-doi-day'].ensureIndex({ "d": 1, "n": 1 }); 
-    db['aggregated-domain-day'].ensureIndex({ "d": 1, "n" : 1});
+    db['aggregated-doi-day'].ensureIndex(  {'o': 1, 'y': 1, 'm': 1, 'a': 1}, {'background': true});
+    db['aggregated-doi-month'].ensureIndex({'o': 1, 'y': 1, 'm': 1, 'a': 1}, {'background': true});
 
-    db['aggregated-doi-month'].ensureIndex({ "d": 1, "o" : 1}); 
-    db['aggregated-domain-doi-month'].ensureIndex({ "d": 1, "o" : 1, "n": 1 });
-    db['aggregated-domain-doi-month'].ensureIndex({ "d": 1, "o" : 1 }); 
-    db['aggregated-domain-doi-month'].ensureIndex({ "d": 1, "n": 1 }); 
-    db['aggregated-domain-month'].ensureIndex({ "d": 1, "n" : 1});
+    db['aggregated-domain-day'].ensureIndex(  {'s': 1, 'n': 1, 'l': 1, 'y': 1, 'm': 1, 'a': 1}, {'background': true});
+    db['aggregated-domain-month'].ensureIndex({'s': 1, 'n': 1, 'l': 1, 'y': 1, 'm': 1, 'a': 1}, {'background': true});
 
+    db['aggregated-domain-doi-day'].ensureIndex(  {'o': 1, 's': 1, 'n': 1, 'l': 1, 'y': 1, 'm': 1, 'a': 1}, {'background': true});
+    db['aggregated-domain-doi-month'].ensureIndex({'o': 1, 's': 1, 'n': 1, 'l': 1, 'y': 1, 'm': 1, 'a': 1}, {'background': true});
+
+If there was a bad run, you can delete data from a month in the mongo console.
+
+    var delMonth = function(year, month) {
+        db['aggregated-doi-day'].remove({'y': year, 'm': month});
+        db['aggregated-doi-month'].remove({'y': year, 'm': month});
+        db['aggregated-domain-day'].remove({'y': year, 'm': month});
+        db['aggregated-domain-month'].remove({'y': year, 'm': month});
+        db['aggregated-domain-doi-day'].remove({'y': year, 'm': month});
+        db['aggregated-domain-doi-month'].remove({'y': year, 'm': month});
+    }
+
+Then
+
+    delMonth(2013, 6)
 
 ### Run server for querying
 

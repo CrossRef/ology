@@ -6,17 +6,21 @@ This can deal with any size of input. Typically one month's worth of log files a
 
 ## Usage
 
+### Configuration
+
+There is currently only one configuration option, the port that the server runs on. The `config.default.edn` file is read. Create a `config.edn` if you want to override this, but don't check it into git.
+
 ### Insert log files
 
 To insert log files, run on the command line with the list of log files. Within a log file, the entries must be in date order. The aggregation allows for the logs to be intered in any order. For each date mentioned (year/month/day) the numbers are calculated and replaced in the database. It's best to run this on one month (or groups of one-month) files in a batch. You must specify a temporary directory as the first argument.
 
 To insert a log file into the database
 
-    lein run «path to temporary directory» «path to log file»*
+    lein run ingest «path to temporary directory» «path to log file»*
 
 or 
 
-    java -jar /path/to/jar.jar «path to temporary directory» «path to log file»*
+    java -jar /path/to/jar.jar ingest «path to temporary directory» «path to log file»*
 
 
 Indexes are dropped prior to insertion. Run this in the mongo shell after:
@@ -46,5 +50,13 @@ Then
     delMonth(2013, 6)
 
 ### Run server for querying
+
+    lein run server
+
+or, for deployment
+
+    lein daemon start ology server
+
+or, for development
 
     lein ring server-headless

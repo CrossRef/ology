@@ -5,7 +5,8 @@
     (:require [clojure.string :as string])
     (:require [clojure.java.io :as io])
     (:require [clj-time.format :refer [parse formatter]])
-    (:require [ology.storage :as storage])
+    (:require [ology.storage :as storage]
+              [ology.config :refer [config]])
     (:import (org.joda.time.DateTimeZone))
     (:import (org.joda.time.TimeZone))
     (:import (java.net URL))
@@ -14,8 +15,7 @@
     (:require [clj-time.core :as time])
     (:require [clj-time.coerce :as coerce])
     (:require [clj-time.format :as format])
-    (:use [environ.core])    
-    )
+    (:use [environ.core]))
 
 (def ^String line-re #"^([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\") ([^\"]{1,2}|[^\"][^ ]*[^\"]|\"[^\"]*\")$")
 
@@ -352,10 +352,14 @@ Raise an exception if any deletion fails unless silently is true."
         (info "Deleting" the-file)
         (delete-file the-file)))))
 
-(defn -main
-  "Accept list of log file paths"
-  [temp-dir & input-file-paths]
-  (info "Verify" (count input-file-paths) "input files.")  
+
+
+(defn main-ingest
+  "Ingest log files."
+   [temp-dir input-file-paths]
+   (info "Command: ingest")
+   
+   (info "Verify" (count input-file-paths) "input files.")  
   (info "Files:" input-file-paths)  
   
   ; First try opening each input file to check it exists.
@@ -391,6 +395,5 @@ Raise an exception if any deletion fails unless silently is true."
     ; When the bins are filled, calculate and insert frequencies.
     ; Single bin for per-day (known to fit in RAM comfortably), more bins per-month.
     (gather-files temp-dir-day :day 1)
-    (gather-files temp-dir-month :month 30)
-    )
-)
+    (gather-files temp-dir-month :month 30)))
+

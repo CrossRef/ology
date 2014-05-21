@@ -14,11 +14,12 @@
                  [org.clojure/clojure "1.5.1"]
                  [compojure "1.1.6"]
                  [ring/ring-json "0.2.0"]
+                 [http-kit "2.1.10"]
                  ]
-  :plugins [[lein-ring "0.8.10"]]
+  :plugins [[lein-ring "0.8.10"] [lein-daemon "0.5.4"]]
   :ring {:handler ology.handler/app}
-  :main ^:skip-aot ology.core
+  :main ^:skip-aot ology.main
   :target-path "target/%s"
   :jvm-opts ["-Xmx5g" "-server"]
   :profiles {:uberjar {:aot :all}}
-  )
+  :daemon {:ology {:ns ology.main :pidfile "ology.pid"}})

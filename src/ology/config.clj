@@ -2,7 +2,7 @@
     (:require [clojure.tools.reader.edn :as edn])
     (:require [clojure.tools.logging :refer [info]]))
   
-(def config-files ["config.default.edn" "config.edn"])
+(def config-files ["config.edn" "config.default.edn"])
 
 (def first-extant-file (first (filter #(.exists (clojure.java.io/as-file %)) config-files)))
 

@@ -1,0 +1,6 @@
+Set up monetdb:
+
+monetdbd create /data-out/monetdb
+monetdbd start /data-out/monetdb
+monetdb create ology
+monetdb release ology

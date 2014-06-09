@@ -16,7 +16,6 @@
       ^ServerAddress sa  (mg/server-address "127.0.0.1" 27017)]
   (mg/connect! sa opts))
 
-
 (def batch-size 10000)
 
 ; Three tables. Data is sufficiently big that although all jobs can be done by the full table it's worth pre-calculating others.

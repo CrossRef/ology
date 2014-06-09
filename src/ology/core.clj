@@ -6,7 +6,8 @@
     (:require [clojure.java.io :as io])
     (:require [clj-time.format :refer [parse formatter]])
     (:require [ology.storage :as storage]
-              [ology.config :refer [config]])
+              [ology.config :refer [config]]
+              [ology.monet :as monet])
     (:import (org.joda.time.DateTimeZone))
     (:import (org.joda.time.TimeZone))
     (:import (java.net URL))
@@ -129,7 +130,7 @@ Raise an exception if any deletion fails unless silently is true."
         etld-parts (drop (count non-etld-parts) parts)
         main-domain (first non-etld-parts)
         subdomains (reverse (rest non-etld-parts))]
-        [(apply str (interpose "." subdomains)) main-domain (apply str (interpose "." etld-parts))]))
+        [(apply str (interpose "." subdomains)) (or main-domain "") (apply str (interpose "." etld-parts))]))
 
 ;; Hoofing data.
 
@@ -352,15 +353,13 @@ Raise an exception if any deletion fails unless silently is true."
         (info "Deleting" the-file)
         (delete-file the-file)))))
 
-
-
 (defn main-ingest
   "Ingest log files."
-   [temp-dir input-file-paths]
+   [store temp-dir input-file-paths]
    (info "Command: ingest")
    
    (info "Verify" (count input-file-paths) "input files.")  
-  (info "Files:" input-file-paths)  
+    (info "Files:" input-file-paths)  
   
   ; First try opening each input file to check it exists.
   (doseq [input-file-path input-file-paths]
@@ -370,30 +369,49 @@ Raise an exception if any deletion fails unless silently is true."
           (.close log-file-reader)))
   (info "Finished verifying input files.")
   
-  (let [temp-dir-day (str temp-dir "/day")
-        temp-dir-month (str temp-dir "/month")]
+  (when (= store :mongo)
+    (let [temp-dir-day (str temp-dir "/day")
+          temp-dir-month (str temp-dir "/month")]
 
-    ; Don't change the temp file if there are no input files (assume we want to try re-processing).
-    (when (> (count input-file-paths) 0)
+      ; Don't change the temp file if there are no input files (assume we want to try re-processing).
+      (when (> (count input-file-paths) 0)
 
-      ; Remove and create the temp directories.
-      (when (.exists (clojure.java.io/file temp-dir-day))
-          (info "Removing old files" temp-dir-day)
-          (delete-file-recursively temp-dir-day))
-          (.mkdirs (clojure.java.io/file temp-dir-day))
-          
-      (when (.exists (clojure.java.io/file temp-dir-month))
-          (info "Removing old files" temp-dir-month)
-          (delete-file-recursively temp-dir-month))
-          (.mkdirs (clojure.java.io/file temp-dir-month))
-          
-          ; For each input file split into bins.
-          (doseq [input-file-path input-file-paths]
-            (scatter-file input-file-path temp-dir-day :day 1)
-            (scatter-file input-file-path temp-dir-month :month 30)))
-    
-    ; When the bins are filled, calculate and insert frequencies.
-    ; Single bin for per-day (known to fit in RAM comfortably), more bins per-month.
-    (gather-files temp-dir-day :day 1)
-    (gather-files temp-dir-month :month 30)))
-
+        ; Remove and create the temp directories.
+        (when (.exists (clojure.java.io/file temp-dir-day))
+            (info "Removing old files" temp-dir-day)
+            (delete-file-recursively temp-dir-day))
+            (.mkdirs (clojure.java.io/file temp-dir-day))
+            
+        (when (.exists (clojure.java.io/file temp-dir-month))
+            (info "Removing old files" temp-dir-month)
+            (delete-file-recursively temp-dir-month))
+            (.mkdirs (clojure.java.io/file temp-dir-month))
+            
+            ; For each input file split into bins.
+            (doseq [input-file-path input-file-paths]
+              (scatter-file input-file-path temp-dir-day :day 1)
+              (scatter-file input-file-path temp-dir-month :month 30)))
+      
+      ; When the bins are filled, calculate and insert frequencies.
+      ; Single bin for per-day (known to fit in RAM comfortably), more bins per-month.
+      (gather-files temp-dir-day :day 1)
+      (gather-files temp-dir-month :month 30)))
+  
+  (when (= store :monetdb)
+       (doseq [input-file-path input-file-paths]
+         (with-open [log-file-reader (clojure.java.io/reader (clojure.java.io/file input-file-path))]
+           (loop [lines (remove nil? (map #(parse-line % :day) (line-seq log-file-reader)))
+                  acc-lines []
+                  ]
+             (let [line (first lines)
+                   date (coerce/to-date (first line))
+                   [doi [subdomain domain etld]] (rest line)
+                   the-rest (rest lines)
+                   should-flush (>= (count acc-lines) monet/batch-size)
+                   finished (empty? the-rest)]
+               
+               (when (or should-flush finished)
+                 (monet/insert-log-entries acc-lines))
+               
+               (when-not finished
+                   (recur the-rest (if should-flush [] (cons [date doi subdomain domain etld] acc-lines))))))))))

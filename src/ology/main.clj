@@ -17,4 +17,5 @@
   [command & [temp-dir & input-file-paths]]
     (cond
     (= command "server") (main-server)
-    (= command "ingest") (core/main-ingest temp-dir input-file-paths)))
+    (= command "ingest") (core/main-ingest :mongo temp-dir input-file-paths)
+    (= command "ingest-monetdb") (core/main-ingest :monetdb temp-dir input-file-paths)))

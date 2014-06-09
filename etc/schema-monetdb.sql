@@ -1,0 +1,1 @@
+create table resolutions (date date, doi varchar(1024), subdomain varchar(128), domain varchar(128), etld varchar(128));

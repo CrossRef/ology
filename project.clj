@@ -15,7 +15,8 @@
                  [ring/ring-json "0.2.0"]
                  [http-kit "2.1.10"]
                  [monetdb/monetdb-jdbc "2.11"]
-                 [com.mchange/c3p0 "0.9.2.1"]]
+                 [com.mchange/c3p0 "0.9.2.1"]
+                 [org.clojure/java.jdbc "0.3.3"]]
   :plugins [[lein-ring "0.8.10"] [lein-daemon "0.5.4"]]
   :ring {:handler ology.handler/app}
   :main ^:skip-aot ology.main

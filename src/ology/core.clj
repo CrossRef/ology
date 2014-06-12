@@ -399,10 +399,10 @@ Raise an exception if any deletion fails unless silently is true."
   
   (when (= store :monetdb)
        (doseq [input-file-path input-file-paths]
+         (info "Input log file " input-file-path)
          (with-open [log-file-reader (clojure.java.io/reader (clojure.java.io/file input-file-path))]
            (loop [lines (remove nil? (map #(parse-line % :day) (line-seq log-file-reader)))
-                  acc-lines []
-                  ]
+                  acc-lines []]
              (let [line (first lines)
                    date (coerce/to-date (first line))
                    [doi [subdomain domain etld]] (rest line)

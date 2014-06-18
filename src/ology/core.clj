@@ -414,4 +414,16 @@ Raise an exception if any deletion fails unless silently is true."
                  (monet/insert-log-entries acc-lines))
                
                (when-not finished
-                   (recur the-rest (if should-flush [] (cons [date doi subdomain domain etld] acc-lines))))))))))
+                   (recur the-rest (if should-flush [] (cons [date doi subdomain domain etld] acc-lines))))))))
+       
+       
+       (info "Now performing aggregation on" (monet/resolutions-table-size) "entries.")
+       (let [before-aggregated-size (monet/aggregated-table-size)]
+        (monet/produce-aggregations)
+        (let [after-aggregated-size (monet/aggregated-table-size)]
+          (info "Aggregation table grew from" before-aggregated-size "to" after-aggregated-size ", increase of" (- after-aggregated-size before-aggregated-size))))
+       
+       (info "Now flushing resolutions table")
+       (monet/flush-aggregations-table)
+       
+       (info "Done")))

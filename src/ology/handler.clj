@@ -2,15 +2,15 @@
   (:use compojure.core)
   (:require [ology.core :as core])
   (:require [clojure.string])
-  (:require [ology.storage :as storage]
-            [ology.config :refer [config]])
+  ;(:require [ology.storage :as storage])
+  (:require [ology.monet :as storage])
+  (:require [ology.config :refer [config]])
   (:require [compojure.handler :as handler]
             [compojure.route :as route])
   (:use ring.middleware.json)
   (:use ring.util.response)
   (:use [clj-time.format])
-  (:use [clojure.tools.logging :only (info error)])
-)
+  (:use [clojure.tools.logging :only (info error)]))
 
 (def date-formatter (formatter "yyyy-MM-dd"))
 (def page-size 10)

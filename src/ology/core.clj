@@ -424,6 +424,15 @@ Raise an exception if any deletion fails unless silently is true."
           (info "Aggregation table grew from" before-aggregated-size "to" after-aggregated-size ", increase of" (- after-aggregated-size before-aggregated-size))))
        
        (info "Now flushing resolutions table")
-       (monet/flush-aggregations-table)
+
+              ; TODO don't delete data yet.
+       ;(monet/flush-aggregations-table)
        
        (info "Done")))
+
+(defn main-aggregate-monetdb
+  "Aggregate the contents of the resolutions table."
+  []
+  (info "Aggregating.")
+  (monet/produce-aggregations-partitioned)
+  (info "Finished aggregating."))

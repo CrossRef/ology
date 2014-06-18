@@ -82,6 +82,20 @@
   ; TODO this works for 1,000,000 entries but not 1,000,000,000. Need to partition.
   (j/db-do-commands (db-connection) "insert into resolutions_date_aggregate (count, subdomain, domain, etld, date, doi, y, m, d) select count(date) as count, subdomain, domain, etld, date, doi, extract(year from date), extract(month from date), extract(day from date) from resolutions group by date, subdomain, domain, etld, doi order by date"))
 
+(defn produce-aggregations-partitioned
+  "For all the data in the resolutions table calculate aggregation and insert into resolution-aggregate table."
+  []
+  (info "Produce aggregations partitioned.")
+  (let [dates (j/query (db-connection) "select distinct(date) from resolutions")]
+    (info "Got" (count dates) "dates")
+    (doseq [the-date (map :date dates)]
+      (info "Aggregate for date" the-date)
+        (info "Found" (-> (j/query (db-connection) ["select count(*) as count from resolutions where date = ?" the-date]) first :count) "entries")
+        (info "Doing insert...")
+        (j/db-do-commands (db-connection) ["insert into resolutions_date_aggregate (count, subdomain, domain, etld, date, doi, y, m, d) select count(date) as count, subdomain, domain, etld, date, doi, extract(year from date), extract(month from date), extract(day from date) from resolutions where date = ? group by date, subdomain, domain, etld, doi order by date" the-date])
+        (info "Finished insert."))))
+
+
 (defn flush-aggregations-table
   []
   (j/db-do-commands (db-connection) "delete from resolutions"))

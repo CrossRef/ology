@@ -72,7 +72,7 @@
 
 (defn aggregated-table-size
   []
-  (let [result (j/query (db-connection) "select count(*) as count from resolutions_aggregate")]
+  (let [result (j/query (db-connection) "select count(*) as count from resolutions_date_aggregate")]
     (-> result first :count)))
 
 
@@ -92,9 +92,11 @@
       (info "Aggregate for date" the-date)
         (info "Found" (-> (j/query (db-connection) ["select count(*) as count from resolutions where date = ?" the-date]) first :count) "entries")
         (info "Doing insert...")
-        (j/db-do-commands (db-connection) ["insert into resolutions_date_aggregate (count, subdomain, domain, etld, date, doi, y, m, d) select count(date) as count, subdomain, domain, etld, date, doi, extract(year from date), extract(month from date), extract(day from date) from resolutions where date = ? group by date, subdomain, domain, etld, doi order by date" the-date])
+        (info "Size of aggregate table before" (aggregated-table-size))
+        (let [insert-result (j/execute! (db-connection) ["insert into resolutions_date_aggregate (count, subdomain, domain, etld, date, doi, y, m, d) select count(date) as count, subdomain, domain, etld, date, doi, extract(year from date), extract(month from date), extract(day from date) from resolutions where date = ? group by date, subdomain, domain, etld, doi order by date" the-date])]
+          (info "Insert result: " insert-result) 
+          (info "Size of aggregate table after" (aggregated-table-size)))
         (info "Finished insert."))))
-
 
 (defn flush-aggregations-table
   []

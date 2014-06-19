@@ -90,7 +90,8 @@
     (info "Got" (count dates) "dates")
     (doseq [the-date (map :date dates)]
       (info "Aggregate for date" the-date)
-        (info "Found" (-> (j/query (db-connection) ["select count(*) as count from resolutions where date = ?" the-date]) first :count) "entries")
+        ; This is expensive. Only for debugging.
+        ; (info "Found" (-> (j/query (db-connection) ["select count(*) as count from resolutions where date = ?" the-date]) first :count) "entries")
         (info "Doing insert...")
         (info "Size of aggregate table before" (aggregated-table-size))
         (let [insert-result (j/execute! (db-connection) ["insert into resolutions_date_aggregate (count, subdomain, domain, etld, date, doi, y, m, d) select count(date) as count, subdomain, domain, etld, date, doi, extract(year from date), extract(month from date), extract(day from date) from resolutions where date = ? group by date, subdomain, domain, etld, doi order by date" the-date])]

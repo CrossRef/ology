@@ -86,7 +86,8 @@
   "For all the data in the resolutions table calculate aggregation and insert into resolution-aggregate table."
   []
   (info "Produce aggregations partitioned.")
-  (let [dates (j/query (db-connection) "select distinct(date) from resolutions")]
+  (let [page-size 100000
+        dates (j/query (db-connection) "select distinct(date) from resolutions")]
     (info "Got" (count dates) "dates")
     (doseq [the-date (map :date dates)]
       (info "Aggregate for date" the-date)
@@ -94,9 +95,14 @@
         ; (info "Found" (-> (j/query (db-connection) ["select count(*) as count from resolutions where date = ?" the-date]) first :count) "entries")
         (info "Doing insert...")
         (info "Size of aggregate table before" (aggregated-table-size))
-        (let [insert-result (j/execute! (db-connection) ["insert into resolutions_date_aggregate (count, subdomain, domain, etld, date, doi, y, m, d) select count(date) as count, subdomain, domain, etld, date, doi, extract(year from date), extract(month from date), extract(day from date) from resolutions where date = ? group by date, subdomain, domain, etld, doi order by date" the-date])]
-          (info "Insert result: " insert-result) 
-          (info "Size of aggregate table after" (aggregated-table-size)))
+        (loop [page-num 0]
+          (info "date" the-date "page" page-num)
+          (let [insert-result (j/execute! (db-connection) ["insert into resolutions_date_aggregate (count, subdomain, domain, etld, date, doi, y, m, d) select count(date) as count, subdomain, domain, etld, date, doi, extract(year from date), extract(month from date), extract(day from date) from resolutions where date = ? group by date, subdomain, domain, etld, doi order by date limit ? offset ?" the-date page-size (* page-size page-num)])
+                num-inserted (first insert-result)]
+            (info "Inserted: " num-inserted) 
+            (info "Size of aggregate table after" (aggregated-table-size))
+          
+          (when (> num-inserted 0) (recur (inc page-num)))))
         (info "Finished insert."))))
 
 (defn flush-aggregations-table
@@ -162,6 +168,7 @@
         sql-query (vec (concat [(str select-clause " where " where-clause " group by " date-grouping " " order-clause)] where-args))
         result (j/query (db-connection) sql-query)     
         result-with-date (map #(conj % (date-f %)) result)]
+    (info "Query" sql-query)
     
     {:days result-with-date :count (reduce + (map :count result-with-date))}))
  
@@ -179,9 +186,9 @@
   
   (let [query (if ignore-tld
         (j/query (db-connection)
-          ["select domain, count(domain) as count from resolutions_aggregate where date > ? and date < ? group by domain order by count desc limit ? offset ?" (to-date start-date) (to-date end-date) page-size (* page-size page-number)])
+          ["select domain, count(domain) as count from resolutions_date_aggregate where date > ? and date < ? group by domain order by count desc limit ? offset ?" (to-date start-date) (to-date end-date) page-size (* page-size page-number)])
         (j/query (db-connection)
-          ["select domain, subdomain, count(domain) as count from resolutions_aggregate where date > ? and date < ? group by domain, subdomain order by count desc limit ? offset ?" (to-date start-date) (to-date end-date) page-size (* page-size page-number)]))
+          ["select domain, subdomain, count(domain) as count from resolutions_date_aggregate where date > ? and date < ? group by domain, subdomain order by count desc limit ? offset ?" (to-date start-date) (to-date end-date) page-size (* page-size page-number)]))
         f (if ignore-tld
             (fn [e] {:full-domain (:domain e) :count (:count e)})
             (fn [e] {:full-domain (str (:subdomain e) (:domain e)) :count (:count e)}))]

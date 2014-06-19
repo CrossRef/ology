@@ -412,7 +412,6 @@ Raise an exception if any deletion fails unless silently is true."
                
                (when (or should-flush finished)
                  (monet/insert-log-entries acc-lines))
-               
                (when-not finished
                    (recur the-rest (if should-flush [] (cons [date doi subdomain domain etld] acc-lines))))))))
        
@@ -425,7 +424,7 @@ Raise an exception if any deletion fails unless silently is true."
        
        (info "Now flushing resolutions table")
 
-              ; TODO don't delete data yet.
+       ; TODO don't delete data yet.
        ;(monet/flush-aggregations-table)
        
        (info "Done")))

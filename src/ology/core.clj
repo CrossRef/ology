@@ -7,7 +7,8 @@
     (:require [clj-time.format :refer [parse formatter]])
     (:require [ology.storage :as storage]
               [ology.config :refer [config]]
-              [ology.monet :as monet])
+              ; [ology.monet :as monet]
+              [ology.mysql :as mysql])
     (:import (org.joda.time.DateTimeZone))
     (:import (org.joda.time.TimeZone))
     (:import (java.net URL))
@@ -397,7 +398,39 @@ Raise an exception if any deletion fails unless silently is true."
       (gather-files temp-dir-day :day 1)
       (gather-files temp-dir-month :month 30)))
   
-  (when (= store :monetdb)
+  ; (when (= store :monetdb)
+  ;      (doseq [input-file-path input-file-paths]
+  ;        (info "Input log file " input-file-path)
+  ;        (with-open [log-file-reader (clojure.java.io/reader (clojure.java.io/file input-file-path))]
+  ;          (loop [lines (remove nil? (map #(parse-line % :day) (line-seq log-file-reader)))
+  ;                 acc-lines []]
+  ;            (let [line (first lines)
+  ;                  date (coerce/to-date (first line))
+  ;                  [doi [subdomain domain etld]] (rest line)
+  ;                  the-rest (rest lines)
+  ;                  should-flush (>= (count acc-lines) monet/batch-size)
+  ;                  finished (empty? the-rest)]
+               
+  ;              (when (or should-flush finished)
+  ;                (monet/insert-log-entries acc-lines))
+  ;              (when-not finished
+  ;                  (recur the-rest (if should-flush [] (cons [date doi subdomain domain etld] acc-lines))))))))
+       
+       
+       ; (info "Now performing aggregation on" (monet/resolutions-table-size) "entries.")
+       ; (let [before-aggregated-size (monet/aggregated-table-size)]
+       ;  (monet/produce-aggregations)
+       ;  (let [after-aggregated-size (monet/aggregated-table-size)]
+       ;    (info "Aggregation table grew from" before-aggregated-size "to" after-aggregated-size ", increase of" (- after-aggregated-size before-aggregated-size))))
+       
+       ; (info "Now flushing resolutions table")
+
+       ; ; TODO don't delete data yet.
+       ; ;(monet/flush-aggregations-table)
+       
+       ; (info "Done"))
+  
+  (when (= store :mysql)
        (doseq [input-file-path input-file-paths]
          (info "Input log file " input-file-path)
          (with-open [log-file-reader (clojure.java.io/reader (clojure.java.io/file input-file-path))]
@@ -407,31 +440,34 @@ Raise an exception if any deletion fails unless silently is true."
                    date (coerce/to-date (first line))
                    [doi [subdomain domain etld]] (rest line)
                    the-rest (rest lines)
-                   should-flush (>= (count acc-lines) monet/batch-size)
+                   should-flush (>= (count acc-lines) mysql/batch-size)
                    finished (empty? the-rest)]
                
                (when (or should-flush finished)
-                 (monet/insert-log-entries acc-lines))
+                 (mysql/insert-log-entries acc-lines))
                (when-not finished
                    (recur the-rest (if should-flush [] (cons [date doi subdomain domain etld] acc-lines))))))))
        
        
-       (info "Now performing aggregation on" (monet/resolutions-table-size) "entries.")
-       (let [before-aggregated-size (monet/aggregated-table-size)]
-        (monet/produce-aggregations)
-        (let [after-aggregated-size (monet/aggregated-table-size)]
+       (info "Now performing aggregation on" (mysql/resolutions-table-size) "entries.")
+       (let [before-aggregated-size (mysql/aggregated-table-size)]
+        (mysql/produce-aggregations)
+        (let [after-aggregated-size (mysql/aggregated-table-size)]
           (info "Aggregation table grew from" before-aggregated-size "to" after-aggregated-size ", increase of" (- after-aggregated-size before-aggregated-size))))
        
        (info "Now flushing resolutions table")
 
        ; TODO don't delete data yet.
-       ;(monet/flush-aggregations-table)
+       ;(mysql/flush-aggregations-table)
        
-       (info "Done")))
+       (info "Done"))
+  
+  
+  )
 
 (defn main-aggregate-monetdb
   "Aggregate the contents of the resolutions table."
   []
   (info "Aggregating.")
-  (monet/produce-aggregations-partitioned)
+  ; (monet/produce-aggregations-partitioned)
   (info "Finished aggregating."))

@@ -16,11 +16,14 @@
                  [http-kit "2.1.10"]
                  [monetdb/monetdb-jdbc "2.11"]
                  [com.mchange/c3p0 "0.9.2.1"]
-                 [org.clojure/java.jdbc "0.3.3"]]
+                 [org.clojure/java.jdbc "0.3.3"]
+                 [korma "0.3.0"]
+                 [mysql-java "5.1.21"]]
+    
   :plugins [[lein-ring "0.8.10"] [lein-daemon "0.5.4"]]
   :ring {:handler ology.handler/app}
   :main ^:skip-aot ology.main
   :target-path "target/%s"
-  :jvm-opts ["-Xmx5g" "-server"]
+  :jvm-opts ["-Xmx5g" "-server" "-Duser.timezone=UTC"]
   :profiles {:uberjar {:aot :all}}
   :daemon {:ology {:ns ology.main :pidfile "ology.pid"}})

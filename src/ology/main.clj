@@ -19,4 +19,5 @@
     (= command "server") (main-server)
     (= command "ingest") (core/main-ingest :mongo temp-dir input-file-paths)
     (= command "ingest-monetdb") (core/main-ingest :monetdb temp-dir input-file-paths)
+    (= command "ingest-mysql") (core/main-ingest :mysql temp-dir input-file-paths)
     (= command "aggregate-monetdb") (core/main-aggregate-monetdb)))
